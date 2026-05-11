@@ -213,6 +213,7 @@ const toM = (val, unit) => {
   if (unit==="cm") return v/100;
   return v;
 };
+const f1 = v => (isNaN(v)||!isFinite(v)) ? "—" : parseFloat(v).toFixed(1);
 const f2 = v => (isNaN(v)||!isFinite(v)) ? "—" : parseFloat(v).toFixed(2);
 const f3 = v => (isNaN(v)||!isFinite(v)) ? "—" : parseFloat(v).toFixed(3);
 const fN = (v,n=2) => (isNaN(v)||!isFinite(v)) ? "—" : parseFloat(v).toFixed(n);
@@ -2793,552 +2794,967 @@ const IsometricView = ({pts,hookH,tension,wllEff,designLoad,legCount}) => {
 };
 
 // ── MAIN RIGGING CALC COMPONENT ────────────────────────────────────────────────
+
+
+
+// Lift-point label box for rigging plan diagram
+const LegLabelBox = ({sx,sy,p,i,col,labelY,lt,lg,loadMode,hasCogOffset,f2,f3}) => {
+  const hasAdj = loadMode==="nonuniform" && hasCogOffset && lg && Math.abs(lg.dS)>0.005;
+  const boxH   = hasAdj ? 40 : 28;
+  return (
+    <>
+      <rect x={sx(p.x)-36} y={labelY-2} width="72" height={boxH} rx="3"
+        fill="white" stroke={col} strokeWidth="0.5" opacity="0.95"/>
+      <text x={sx(p.x)} y={labelY+8}
+        textAnchor="middle" fontSize="9" fontWeight="700" fill={col}>
+        {lt ? f3(lt.tension)+" T" : "—"}
+      </text>
+      <text x={sx(p.x)} y={labelY+18}
+        textAnchor="middle" fontSize="8" fill="#6b7280">
+        {lg && lg.S>0 ? "L="+f2(lg.S)+"m" : (lt ? f3(lt.util)+"% util" : "")}
+      </text>
+      {hasAdj && (
+        <text x={sx(p.x)} y={labelY+29}
+          textAnchor="middle" fontSize="8" fontWeight="700"
+          fill={lg.dS>0 ? "#2563eb" : "#ea6c00"}>
+          {(lg.dS>0?"+":"")+f2(lg.dS)+"m "+(lg.dS>0?"↑":"↓")}
+        </text>
+      )}
+    </>
+  );
+};
+
+
+// ── RIGGING PLAN VIEW DIAGRAM ─────────────────────────────────────────────────
+const RiggingDiagram = ({effPts,hookPos,cogAbs,hasCogOffset,cogOffset,
+  legTensions,legGeom,n,loadMode,ObjL,ObjW,maxTension}) => {
+  const _f1=v=>(isNaN(v)||!isFinite(v))?"—":parseFloat(v).toFixed(1);
+  const _f2=v=>(isNaN(v)||!isFinite(v))?"—":parseFloat(v).toFixed(2);
+  const _f3=v=>(isNaN(v)||!isFinite(v))?"—":parseFloat(v).toFixed(3);
+  const LEG=['A','B','C','D','E','F'];
+  const pad=0.8;
+  const allX=[...effPts.map(q=>q.x),hookPos.x,...(cogAbs?[cogAbs.x]:[])];
+  const allY=[...effPts.map(q=>q.y),hookPos.y,...(cogAbs?[cogAbs.y]:[])];
+  const x0=Math.min(...allX)-pad, x1=Math.max(...allX)+pad;
+  const y0=Math.min(...allY)-pad, y1=Math.max(...allY)+pad;
+  const rX=x1-x0||1, rY=y1-y0||1;
+  const VW=560, VH=320, MX=60, MY=44;
+  const sx=v=>MX+(v-x0)/rX*(VW-2*MX);
+  const sy=v=>MY+(v-y0)/rY*(VH-2*MY);
+  const uCol=u=>u>100?'#A32D2D':u>85?'#BA7517':u>75?'#EF9F27':'#3B6D11';
+  const uFill=u=>u>100?'rgba(163,45,45,0.15)':u>85?'rgba(186,117,23,0.15)':u>75?'rgba(239,159,39,0.12)':'rgba(59,109,17,0.12)';
+  const barM=parseFloat((rX/4).toPrecision(1))||0.5;
+  const barPx=barM/rX*(VW-2*MX);
+  const ref=loadMode==="nonuniform"&&cogAbs?cogAbs:hookPos;
+  return (
+    <svg width="100%" viewBox={"0 0 "+VW+" "+VH} style={{display:"block",fontFamily:"Arial,sans-serif"}}>
+      <defs>
+        <marker id="rdArr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </marker>
+      </defs>
+      {/* Title */}
+      <text x={VW/2} y="20" textAnchor="middle" fontSize="11" fontWeight="700" fill="#374151">
+        {"RIGGING PLAN VIEW — "+n+"-LEG "+(loadMode==="nonuniform"?"NON-UNIFORM":"UNIFORM")+" LOAD"}
+      </text>
+      {/* Load boundary */}
+      {ObjL>0&&ObjW>0&&(
+        <rect x={sx(0)} y={sy(0)} width={sx(ObjL)-sx(0)} height={sy(ObjW)-sy(0)}
+          fill="rgba(249,115,22,0.04)" stroke="#fed7aa" strokeWidth="1.5" strokeDasharray="8,4" rx="4"/>
+      )}
+      {/* Sling legs + distance labels */}
+      {effPts.slice(0,n).map((pt,i)=>{
+        const lt=legTensions[i], lg=legGeom[i];
+        const col=lt?uCol(lt.util):'#9ca3af';
+        const mx=(sx(pt.x)+sx(ref.x))/2, my=(sy(pt.y)+sy(ref.y))/2;
+        return (
+          <g key={i}>
+            <line x1={sx(pt.x)} y1={sy(pt.y)} x2={sx(ref.x)} y2={sy(ref.y)}
+              stroke={col} strokeWidth={lt&&lt.tension===maxTension?2.5:1.5}
+              strokeDasharray="6,3" opacity="0.85"/>
+            {lg&&lg.dCog>0.01&&(
+              <g>
+                <rect x={mx-18} y={my-8} width="36" height="14" rx="3"
+                  fill="white" stroke={col} strokeWidth="0.5" opacity="0.9"/>
+                <text x={mx} y={my+3} textAnchor="middle" fontSize="8"
+                  fill={col} fontWeight="600" fontFamily="Arial,monospace">
+                  {_f2(lg.dCog)+"m"}
+                </text>
+              </g>
+            )}
+          </g>
+        );
+      })}
+      {/* Eccentricity arrow */}
+      {loadMode==="nonuniform"&&cogAbs&&hasCogOffset&&(
+        <g>
+          <line x1={sx(hookPos.x)} y1={sy(hookPos.y)} x2={sx(cogAbs.x)} y2={sy(cogAbs.y)}
+            stroke="#BA7517" strokeWidth="1.5" strokeDasharray="4,2" markerEnd="url(#rdArr)"/>
+          <rect x={(sx(hookPos.x)+sx(cogAbs.x))/2-22} y={(sy(hookPos.y)+sy(cogAbs.y))/2-8}
+            width="44" height="14" rx="3" fill="white" opacity="0.85"/>
+          <text x={(sx(hookPos.x)+sx(cogAbs.x))/2} y={(sy(hookPos.y)+sy(cogAbs.y))/2+3}
+            textAnchor="middle" fontSize="9" fill="#BA7517" fontWeight="600">
+            {"e="+_f2(Math.sqrt(Math.pow(cogOffset.x,2)+Math.pow(cogOffset.y,2)))+"m"}
+          </text>
+        </g>
+      )}
+      {/* Hook crosshair (blue) */}
+      <line x1={sx(hookPos.x)-12} y1={sy(hookPos.y)} x2={sx(hookPos.x)+12} y2={sy(hookPos.y)} stroke="#185FA5" strokeWidth="2"/>
+      <line x1={sx(hookPos.x)} y1={sy(hookPos.y)-12} x2={sx(hookPos.x)} y2={sy(hookPos.y)+12} stroke="#185FA5" strokeWidth="2"/>
+      <circle cx={sx(hookPos.x)} cy={sy(hookPos.y)} r="6" fill="none" stroke="#185FA5" strokeWidth="2"/>
+      <rect x={sx(hookPos.x)+10} y={sy(hookPos.y)-14} width="58" height="18" rx="3"
+        fill="white" stroke="#185FA5" strokeWidth="0.5" opacity="0.9"/>
+      <text x={sx(hookPos.x)+39} y={sy(hookPos.y)-2}
+        textAnchor="middle" fontSize="9" fill="#185FA5" fontWeight="600">
+        {"Hook ("+_f2(hookPos.x)+","+_f2(hookPos.y)+")"}
+      </text>
+      {/* COG crosshair (red) */}
+      {loadMode==="nonuniform"&&cogAbs&&(
+        <g>
+          <circle cx={sx(cogAbs.x)} cy={sy(cogAbs.y)} r="14"
+            fill="rgba(163,45,45,0.08)" stroke="#A32D2D" strokeWidth="1" strokeDasharray="3,2"/>
+          <line x1={sx(cogAbs.x)-13} y1={sy(cogAbs.y)} x2={sx(cogAbs.x)+13} y2={sy(cogAbs.y)} stroke="#A32D2D" strokeWidth="2.5"/>
+          <line x1={sx(cogAbs.x)} y1={sy(cogAbs.y)-13} x2={sx(cogAbs.x)} y2={sy(cogAbs.y)+13} stroke="#A32D2D" strokeWidth="2.5"/>
+          <circle cx={sx(cogAbs.x)} cy={sy(cogAbs.y)} r="4" fill="#A32D2D"/>
+          <rect x={sx(cogAbs.x)+16} y={sy(cogAbs.y)-16} width="68" height="24" rx="3"
+            fill="white" stroke="#A32D2D" strokeWidth="1" opacity="0.95"/>
+          <text x={sx(cogAbs.x)+20} y={sy(cogAbs.y)-6} fontSize="9" fill="#A32D2D" fontWeight="700">COG</text>
+          <text x={sx(cogAbs.x)+20} y={sy(cogAbs.y)+5}
+            fontSize="8" fill="#6b7280" fontFamily="Arial,monospace">
+            {"("+_f2(cogAbs.x)+","+_f2(cogAbs.y)+")"}
+          </text>
+        </g>
+      )}
+      {/* Lift point circles */}
+      {effPts.slice(0,n).map((pt,i)=>{
+        const lt=legTensions[i], lg=legGeom[i];
+        const col=lt?uCol(lt.util):'#888';
+        const fill=lt?uFill(lt.util):'rgba(136,136,136,0.12)';
+        const lbl=LEG[i]||("L"+(i+1));
+        const isBig=lt&&lt.tension===maxTension;
+        const r=isBig?18:15;
+        const labelY=sy(pt.y)<(MY+(VH-2*MY)/2)?sy(pt.y)+r+10:sy(pt.y)-r-22;
+        return (
+          <g key={i}>
+            <circle cx={sx(pt.x)} cy={sy(pt.y)} r={r} fill={fill} stroke={col} strokeWidth={isBig?2.5:1.5}/>
+            <text x={sx(pt.x)} y={sy(pt.y)+5} textAnchor="middle" fontSize="12" fontWeight="700" fill={col}>{lbl}</text>
+            <rect x={sx(pt.x)-36} y={labelY-2} width="72" height="28" rx="3"
+              fill="white" stroke={col} strokeWidth="0.5" opacity="0.95"/>
+            <text x={sx(pt.x)} y={labelY+8}
+              textAnchor="middle" fontSize="9" fontWeight="700" fill={col}>
+              {lt?_f3(lt.tension)+" T":"—"}
+            </text>
+            <text x={sx(pt.x)} y={labelY+18}
+              textAnchor="middle" fontSize="8" fill="#6b7280">
+              {lg&&lg.S>0?"L="+_f2(lg.S)+"m":lt?_f1(lt.util)+"% util":""}
+            </text>
+          </g>
+        );
+      })}
+      {/* Scale bar */}
+      {rX>0&&(
+        <g>
+          <line x1={MX} y1={VH-14} x2={MX+barPx} y2={VH-14} stroke="#6b7280" strokeWidth="1.5"/>
+          <line x1={MX} y1={VH-19} x2={MX} y2={VH-9} stroke="#6b7280" strokeWidth="1.5"/>
+          <line x1={MX+barPx} y1={VH-19} x2={MX+barPx} y2={VH-9} stroke="#6b7280" strokeWidth="1.5"/>
+          <text x={MX+barPx/2} y={VH-3} textAnchor="middle" fontSize="8" fill="#6b7280">{barM+" m"}</text>
+        </g>
+      )}
+      {/* Legend */}
+      <rect x={VW-130} y={MY} width="118" height={loadMode==="nonuniform"?90:74} rx="4"
+        fill="white" stroke="#e5e7eb" strokeWidth="0.5" opacity="0.95"/>
+      <text x={VW-122} y={MY+14} fontSize="9" fontWeight="700" fill="#374151">Legend</text>
+      <circle cx={VW-116} cy={MY+27} r="5" fill="rgba(59,109,17,0.15)" stroke="#3B6D11" strokeWidth="1.5"/>
+      <text x={VW-108} y={MY+31} fontSize="8" fill="#374151">OK  &lt;75%</text>
+      <circle cx={VW-116} cy={MY+43} r="5" fill="rgba(239,159,39,0.15)" stroke="#EF9F27" strokeWidth="1.5"/>
+      <text x={VW-108} y={MY+47} fontSize="8" fill="#374151">Warn 75–90%</text>
+      <circle cx={VW-116} cy={MY+59} r="5" fill="rgba(163,45,45,0.15)" stroke="#A32D2D" strokeWidth="1.5"/>
+      <text x={VW-108} y={MY+63} fontSize="8" fill="#374151">Over &gt;90%</text>
+      {loadMode==="nonuniform"&&(
+        <g>
+          <line x1={VW-122} y1={MY+75} x2={VW-110} y2={MY+75} stroke="#185FA5" strokeWidth="2"/>
+          <circle cx={VW-116} cy={MY+75} r="3" fill="none" stroke="#185FA5" strokeWidth="1.5"/>
+          <text x={VW-108} y={MY+79} fontSize="8" fill="#374151">Hook</text>
+          <line x1={VW-122} y1={MY+87} x2={VW-110} y2={MY+87} stroke="#A32D2D" strokeWidth="2.5"/>
+          <circle cx={VW-116} cy={MY+87} r="3" fill="#A32D2D"/>
+          <text x={VW-108} y={MY+91} fontSize="8" fill="#374151">COG</text>
+        </g>
+      )}
+    </svg>
+  );
+};
+
+
+
+// ── LOAD SHAPE SCHEMATIC ──────────────────────────────────────────────────────
+// Shows lift point positions on a simplified load rectangle, updates with leg count
+const LoadSchematic = ({n}) => {
+  const W=260, H=140, lx=30, ly=20, lw=W-60, lh=H-40;
+  // Lift point positions for each configuration (normalised 0-1 on lw/lh)
+  const configs = {
+    1: [[0.5,0.5]],
+    2: [[0.25,0.5],[0.75,0.5]],
+    3: [[0.5,0.18],[0.18,0.82],[0.82,0.82]],
+    4: [[0.18,0.18],[0.82,0.18],[0.82,0.82],[0.18,0.82]],
+    5: [[0.18,0.18],[0.82,0.18],[0.5,0.5],[0.18,0.82],[0.82,0.82]],
+    6: [[0.18,0.18],[0.82,0.18],[0.18,0.5],[0.82,0.5],[0.18,0.82],[0.82,0.82]],
+  };
+  const pts  = configs[n] || configs[4];
+  const LEG  = ['A','B','C','D','E','F'];
+  // Hook = centroid of lift points
+  const hx   = pts.reduce((s,p)=>s+p[0],0)/pts.length;
+  const hy   = pts.reduce((s,p)=>s+p[1],0)/pts.length;
+  const toX  = t => lx + t*lw;
+  const toY  = t => ly + t*lh;
+  return (
+    <svg width={W} height={H} viewBox={"0 0 "+W+" "+H} style={{display:"block",fontFamily:"Arial,sans-serif"}}>
+      {/* Load rectangle */}
+      <rect x={lx} y={ly} width={lw} height={lh} rx="4"
+        fill="rgba(249,115,22,0.05)" stroke="#fed7aa" strokeWidth="1.5" strokeDasharray="6,3"/>
+      <text x={W/2} y={ly-6} textAnchor="middle" fontSize="9" fill="#9ca3af">Load</text>
+      {/* Sling legs to hook */}
+      {pts.map(([tx,ty],i)=>(
+        <line key={i}
+          x1={toX(tx)} y1={toY(ty)} x2={toX(hx)} y2={toY(hy)}
+          stroke="#f97316" strokeWidth="1.2" strokeDasharray="4,2" opacity="0.7"/>
+      ))}
+      {/* Hook crosshair */}
+      <line x1={toX(hx)-7} y1={toY(hy)} x2={toX(hx)+7} y2={toY(hy)} stroke="#185FA5" strokeWidth="1.5"/>
+      <line x1={toX(hx)} y1={toY(hy)-7} x2={toX(hx)} y2={toY(hy)+7} stroke="#185FA5" strokeWidth="1.5"/>
+      <circle cx={toX(hx)} cy={toY(hy)} r="4" fill="none" stroke="#185FA5" strokeWidth="1.5"/>
+      {/* Lift point circles + labels */}
+      {pts.map(([tx,ty],i)=>(
+        <g key={i}>
+          <circle cx={toX(tx)} cy={toY(ty)} r="9"
+            fill="rgba(249,115,22,0.15)" stroke="#f97316" strokeWidth="1.5"/>
+          <text x={toX(tx)} y={toY(ty)+4}
+            textAnchor="middle" fontSize="9" fontWeight="700" fill="#ea6c00">{LEG[i]}</text>
+        </g>
+      ))}
+      {/* Legend */}
+      <text x={lx} y={H-6} fontSize="8" fill="#9ca3af">{n+"-leg  ● = lift point  ✕ = hook"}</text>
+    </svg>
+  );
+};
+
+
 const RiggingCalc = () => {
   const {g,updateG} = useContext(AppCtx);
 
-  // Step 1 — Design load
-  const [manualLoad,setManualLoad]=useState(""); const [manualLoadU,setManualLoadU]=useState("T");
-  const [manualDaf,setManualDaf]=useState("1.00");
-  const glwLinked = g.glw>0;
-  const dafLinked = g.daf||1.00;
-  const designLoadRaw = glwLinked
-    ? (g.glw*(g.daf||1.00))
-    : (parseFloat(manualLoad)||0)*(parseFloat(manualDaf)||1.00);
-  const designLoad = designLoadRaw;
+  // ── Load distribution mode ──────────────────────────────────────────────
+  const [loadMode,setLoadMode] = useState("uniform");
 
-  // Step 2 — Configuration
+  // ── Step 1: Design load ─────────────────────────────────────────────────
+  const [manualLoad,setManualLoad]=useState(""); const [manualLoadU,setManualLoadU]=useState("T");
+  const [manualDaf,setManualDaf]=useState("1.10");
+  const glwLinked = g.glw>0;
+  const designLoad = glwLinked
+    ? g.glw*(g.daf||1.10)
+    : (parseFloat(manualLoad)||0)*(parseFloat(manualDaf)||1.10);
+
+  // ── Step 2: Config ──────────────────────────────────────────────────────
   const [legCount,setLegCount]=useState(4);
   const [hitch,setHitch]=useState("direct");
   const [slingType,setSlingType]=useState("Wire Rope");
-
-  // Step 3 — WLL + length
+  const n = Math.min(parseInt(legCount)||4,6);
   const [wll,setWll]=useState(""); const [wllU,setWllU]=useState("T");
-  const [slingMode,setSlingMode]=useState("hookH"); // 'hookH' | 'slingLen' | 'angle'
-  const [hookHVal,setHookHVal]=useState(""); const [hookHU,setHookHU]=useState("m");
-  const [slingLenVal,setSlingLenVal]=useState(""); const [slingLenU,setSlingLenU]=useState("m");
-  const [desiredAngle,setDesiredAngle]=useState("");
-  const [shackleH,setShackleH]=useState("0.150"); const [shackleHU,setShackleHU]=useState("m");
-
   const wllT = parseFloat(wll)||0;
   const wllEff = hitch==="choker" ? wllT*0.75 : wllT;
 
-  // Step 4 — Geometry
-  const n = Math.min(parseInt(legCount)||4,6);
+  // ── Step 3: Sling length mode ───────────────────────────────────────────
+  const [slingMode,setSlingMode]=useState("hookH");
+  const [hookHVal,setHookHVal]=useState(""); const [hookHU,setHookHU]=useState("m");
+  const [slingLenVal,setSlingLenVal]=useState(""); const [slingLenU,setSlingLenU]=useState("m");
+  const [desiredAngle,setDesiredAngle]=useState("");
+
+  // ── Step 4: Object geometry ─────────────────────────────────────────────
   const [objL,setObjL]=useState(""); const [objLU,setObjLU]=useState("m");
   const [objW,setObjW]=useState(""); const [objWU,setObjWU]=useState("m");
-  const [customPos2,setCustomPos2]=useState(false);
-  const [ptAx2,setPtAx2]=useState(""); const [ptAx2U,setPtAx2U]=useState("m");
-  const [ptBx2,setPtBx2]=useState(""); const [ptBx2U,setPtBx2U]=useState("m");
-
-  // 3/4/5/6-leg points — array of {x,y,xu,yu}
-  const maxPts=6;
-  const [pts,setPts]=useState(Array.from({length:maxPts},(_,i)=>({x:'',y:'',xu:'m',yu:'m'})));
-  const setPoint=(i,field,val)=>setPts(p=>p.map((pt,j)=>j===i?{...pt,[field]:val}:pt));
-
   const ObjL=toM(objL,objLU), ObjW=toM(objW,objWU);
 
-  // Auto-default 3/4-leg coordinates from object dims
+  // ── Step 5: COG offset (non-uniform mode) ───────────────────────────────
+  const [cogInputMode,setCogInputMode]=useState("offset"); // "offset"|"absolute"
+  const [cogX,setCogX]=useState(""); const [cogXU,setCogXU]=useState("m");
+  const [cogY,setCogY]=useState(""); const [cogYU,setCogYU]=useState("m");
+  const [cogDX,setCogDX]=useState(""); const [cogDXU,setCogDXU]=useState("m");
+  const [cogDY,setCogDY]=useState(""); const [cogDYU,setCogDYU]=useState("m");
+
+  // ── Lift point coords ───────────────────────────────────────────────────
+  const [pts,setPts]=useState(Array.from({length:6},()=>({x:'',y:'',xu:'m',yu:'m'})));
+  const setPoint=(i,f,v)=>setPts(p=>p.map((pt,j)=>j===i?{...pt,[f]:v}:pt));
+
   const defaultPts = useMemo(()=>{
     if(!ObjL||!ObjW) return [];
+    if(n===2) return [{x:ObjL*0.25,y:ObjW/2},{x:ObjL*0.75,y:ObjW/2}];
     if(n===3) return [{x:0,y:0},{x:ObjL,y:0},{x:ObjL/2,y:ObjW}];
     if(n===4) return [{x:0,y:0},{x:ObjL,y:0},{x:ObjL,y:ObjW},{x:0,y:ObjW}];
     return [];
   },[n,ObjL,ObjW]);
 
-  // Effective point coords — use user entry if set, else default
-  const effPts = useMemo(()=>{
-    return Array.from({length:n},(_,i)=>{
-      const p=pts[i];
-      const hasUser=p.x!==''&&p.y!=='';
+  const effPts = useMemo(()=>
+    Array.from({length:n},(_,i)=>{
+      const p=pts[i]; const hasUser=p.x!==''&&p.y!=='';
       if(hasUser) return {x:toM(p.x,p.xu),y:toM(p.y,p.yu)};
       if(defaultPts[i]) return defaultPts[i];
       return null;
-    }).filter(Boolean);
-  },[pts,n,defaultPts]);
+    }).filter(Boolean)
+  ,[pts,n,defaultPts]);
 
-  // 2-leg positioning
-  const pt2A = customPos2&&ptAx2!=='' ? toM(ptAx2,ptAx2U) : ObjL*0.25;
-  const pt2B = customPos2&&ptBx2!=='' ? toM(ptBx2,ptBx2U) : ObjL*0.75;
-
-  // Step 5 — Hook centroid + distances
   const hookPos = useMemo(()=>{
-    if(n===2) return {x:(pt2A+pt2B)/2, y:ObjW/2};
-    if(effPts.length>=n) return {
-      x:effPts.reduce((s,p)=>s+p.x,0)/effPts.length,
-      y:effPts.reduce((s,p)=>s+p.y,0)/effPts.length,
-    };
-    return null;
-  },[n,effPts,pt2A,pt2B,ObjW]);
+    if(effPts.length<n) return null;
+    return {x:effPts.reduce((s,p)=>s+p.x,0)/effPts.length,
+            y:effPts.reduce((s,p)=>s+p.y,0)/effPts.length};
+  },[effPts,n]);
 
+  const cogAbs = useMemo(()=>{
+    if(loadMode==="uniform") return hookPos;
+    if(!hookPos) return hookPos;
+    // Mode: offset from geometric centre (dX, dY)
+    if(cogInputMode==="offset"){
+      const dx=cogDX!==''?toM(cogDX,cogDXU):0;
+      const dy=cogDY!==''?toM(cogDY,cogDYU):0;
+      return {x:hookPos.x+dx, y:hookPos.y+dy};
+    }
+    // Mode: absolute X,Y from datum
+    if(cogInputMode==="absolute"){
+      const cx=cogX!==''?toM(cogX,cogXU):hookPos.x;
+      const cy=cogY!==''?toM(cogY,cogYU):hookPos.y;
+      return {x:cx, y:cy};
+    }
+    // Fallback
+    return hookPos;
+  },[loadMode,cogInputMode,cogX,cogXU,cogY,cogYU,cogDX,cogDXU,cogDY,cogDYU,hookPos]);
+
+  const cogOffset = useMemo(()=>{
+    if(!hookPos||!cogAbs) return {x:0,y:0};
+    return {x:cogAbs.x-hookPos.x,y:cogAbs.y-hookPos.y};
+  },[hookPos,cogAbs]);
+  const hasCogOffset = Math.abs(cogOffset.x)>0.005||Math.abs(cogOffset.y)>0.005;
+
+  // ── 2D moment equilibrium — vertical force per lift point ───────────────
+  const legVertForces = useMemo(()=>{
+    if(!cogAbs||effPts.length<n||!designLoad) return null;
+    const W=designLoad;
+    if(n===1) return [W];
+    if(n===2){
+      const dx=effPts[1].x-effPts[0].x, dy=effPts[1].y-effPts[0].y;
+      const L=Math.sqrt(dx*dx+dy*dy); if(L<0.001) return [W/2,W/2];
+      const t=Math.max(0,Math.min(1,((cogAbs.x-effPts[0].x)*dx+(cogAbs.y-effPts[0].y)*dy)/(L*L)));
+      return [W*(1-t),W*t];
+    }
+    if(n===3){
+      const [p1,p2,p3]=effPts;
+      const A=[[1,1,1],[p1.x,p2.x,p3.x],[p1.y,p2.y,p3.y]];
+      const B=[W,W*cogAbs.x,W*cogAbs.y];
+      const det=m=>m[0][0]*(m[1][1]*m[2][2]-m[1][2]*m[2][1])-m[0][1]*(m[1][0]*m[2][2]-m[1][2]*m[2][0])+m[0][2]*(m[1][0]*m[2][1]-m[1][1]*m[2][0]);
+      const D=det(A); if(Math.abs(D)<0.0001) return [W/3,W/3,W/3];
+      return [0,1,2].map(col=>det(A.map((r,i)=>r.map((v,j)=>j===col?B[i]:v)))/D);
+    }
+    if(n===4){
+      const cx=effPts.reduce((s,p)=>s+p.x,0)/4, cy=effPts.reduce((s,p)=>s+p.y,0)/4;
+      const ox=effPts.map(p=>p.x-cx), oy=effPts.map(p=>p.y-cy);
+      const Ixx=oy.reduce((s,v)=>s+v*v,0)||1, Iyy=ox.reduce((s,v)=>s+v*v,0)||1;
+      const Mx=W*(cogAbs.y-cy), My=W*(cogAbs.x-cx);
+      return ox.map((_,i)=>W/4+(Mx/Ixx)*oy[i]+(My/Iyy)*ox[i]);
+    }
+    return Array(n).fill(W/n);
+  },[n,effPts,cogAbs,designLoad]);
+
+  // ── Per-leg angle & tension ─────────────────────────────────────────────
   const legGeom = useMemo(()=>{
-    if(!hookPos) return [];
-    const allPts = n===2
-      ? [{x:pt2A,y:ObjW/2},{x:pt2B,y:ObjW/2}]
-      : effPts.slice(0,n);
-    return allPts.map((p,i)=>{
-      const dPlan=Math.sqrt(Math.pow(hookPos.x-p.x,2)+Math.pow(hookPos.y-p.y,2));
-      const hookHm=toM(hookHVal,hookHU);
-      const slingLenM=toM(slingLenVal,slingLenU);
-      const angDeg=parseFloat(desiredAngle)||0;
-      let H=0, S=0, thetaH=0, K=0, tooShort=false;
+    if(!hookPos||effPts.length<n) return [];
+    const hookHm  = toM(hookHVal,hookHU);
+    const slingLenM= toM(slingLenVal,slingLenU);
+    const angDeg  = parseFloat(desiredAngle)||0;
+    // Non-uniform: hook must be above COG — each sling runs from lift point → COG position
+    // Uniform: hook at geometric centroid — standard equal-length slings
+    const refPt   = (loadMode==="nonuniform"&&cogAbs) ? cogAbs : hookPos;
+
+    return effPts.slice(0,n).map((p,i)=>{
+      // Distance from lift point to required hook position (COG in non-uniform, centroid in uniform)
+      const dPlan = Math.sqrt(Math.pow(refPt.x-p.x,2)+Math.pow(refPt.y-p.y,2));
+      // Distance from lift point to geometric centroid (for adjustment comparison)
+      const dPlanCentroid = Math.sqrt(Math.pow(hookPos.x-p.x,2)+Math.pow(hookPos.y-p.y,2));
+
+      let H=0, S=0, thetaH=0, tooShort=false;
+      // Determine hook height from user input
       if(slingMode==='hookH'&&hookHm>0){
-        H=hookHm; S=Math.sqrt(dPlan*dPlan+H*H);
+        H = hookHm;
+        S = Math.sqrt(dPlan*dPlan + H*H);
       } else if(slingMode==='slingLen'&&slingLenM>0){
-        S=slingLenM;
-        if(S<dPlan){tooShort=true; H=0;}
-        else H=Math.sqrt(S*S-dPlan*dPlan);
+        // slingLenM is treated as the base length for the most central leg
+        // For non-uniform: longer legs on corners further from COG
+        const dRef = Math.sqrt(Math.pow(refPt.x-hookPos.x,2)+Math.pow(refPt.y-hookPos.y,2));
+        const Href = Math.sqrt(Math.max(0, slingLenM*slingLenM - dRef*dRef));
+        H = Href;
+        if(dPlan>slingLenM){tooShort=true;}
+        else {S = Math.sqrt(dPlan*dPlan + H*H);}
       } else if(slingMode==='angle'&&angDeg>0){
-        thetaH=angDeg; H=dPlan/Math.tan(thetaH*Math.PI/180); S=Math.sqrt(dPlan*dPlan+H*H);
+        thetaH = angDeg;
+        H = dPlan / Math.tan(thetaH*Math.PI/180);
+        S = Math.sqrt(dPlan*dPlan + H*H);
       }
-      if(H>0&&dPlan>=0){
-        const thetaV=Math.atan2(dPlan,H)*180/Math.PI;
-        thetaH=90-thetaV;
-        K=Math.sin(thetaH*Math.PI/180);
+      if(H>0&&!tooShort){
+        const tV = Math.atan2(dPlan,H)*180/Math.PI;
+        thetaH = 90 - tV;
       }
-      return {leg:LEG_LABELS[i],dPlan,H,S,thetaH,K,tooShort,p};
+      const K = thetaH>0 ? Math.sin(thetaH*Math.PI/180) : 0;
+
+      // Equal-length reference sling (what uniform sling would be)
+      const S_uniform = H>0 ? Math.sqrt(dPlanCentroid*dPlanCentroid + H*H) : 0;
+      // Adjustment needed vs uniform
+      const dS = (S>0&&S_uniform>0) ? S - S_uniform : 0;
+
+      return {
+        leg:LEG_LABELS[i]||('L'+(i+1)),
+        dPlan,           // plan dist from lift point → required hook pos (COG or centroid)
+        dPlanCentroid,   // plan dist from lift point → geometric centroid
+        dCog: loadMode==="nonuniform"&&cogAbs
+              ? Math.sqrt(Math.pow(cogAbs.x-p.x,2)+Math.pow(cogAbs.y-p.y,2))
+              : dPlan,  // distance from lift point to COG
+        H, S, thetaH, K, tooShort,
+        S_uniform,       // sling length for equal-length (uniform) assumption
+        dS,              // S - S_uniform (positive = needs lengthening, negative = shorten)
+        p,               // lift point coordinates
+      };
     });
-  },[hookPos,n,effPts,pt2A,pt2B,ObjW,slingMode,hookHVal,hookHU,slingLenVal,slingLenU,desiredAngle]);
+  },[hookPos,cogAbs,effPts,n,slingMode,hookHVal,hookHU,slingLenVal,slingLenU,desiredAngle,loadMode]);
 
-  // Worst case — lowest thetaH > 0
-  const worstLeg = legGeom.filter(l=>l.thetaH>0).sort((a,b)=>a.thetaH-b.thetaH)[0];
-  const bestK = worstLeg?.K||0;
-  const worstTheta = worstLeg?.thetaH||0;
+  const legTensions = useMemo(()=>{
+    if(!legVertForces||legGeom.length!==n) return [];
+    return legGeom.map((lg,i)=>{
+      const Fv=legVertForces[i]||0;
+      const tension=lg.K>0?Fv/lg.K:0;
+      const util=wllEff>0&&tension>0?tension/wllEff*100:0;
+      return {...lg,Fv,tension,util};
+    });
+  },[legVertForces,legGeom,n,wllEff]);
 
-  // Step 6 — Tension
-  const loadBearingN = n===1?1:2;
-  const tension = bestK>0&&designLoad>0 ? designLoad/(loadBearingN*bestK) : 0;
-  const util = wllEff>0&&tension>0 ? tension/wllEff*100 : 0;
-  const utilCls = utilClass(util);
+  const maxTension = legTensions.length?Math.max(...legTensions.map(l=>l.tension)):0;
+  const maxUtil    = legTensions.length?Math.max(...legTensions.map(l=>l.util)):0;
+  const worstAngle = legGeom.length?Math.min(...legGeom.filter(l=>l.thetaH>0).map(l=>l.thetaH)):0;
+  const utilCls    = utilClass(maxUtil);
+  const angleColor = worstAngle>=45?"var(--green-400)":worstAngle>=30?"var(--amber-400)":"var(--red-400)";
 
-  // Identify load-bearing legs (worst distance pair)
-  const lbLegs = useMemo(()=>{
-    if(n<=2) return legGeom.map((_,i)=>i);
-    const sorted=[...legGeom].sort((a,b)=>b.dPlan-a.dPlan);
-    return [legGeom.indexOf(sorted[0]),legGeom.indexOf(sorted[1])];
-  },[legGeom,n]);
+  // Imbalance ratio (non-uniform mode)
+  const imbalanceRatio = useMemo(()=>{
+    if(!legTensions.length) return 0;
+    const fvs=legTensions.map(l=>l.Fv).filter(v=>v>0);
+    if(fvs.length<2) return 1;
+    return Math.max(...fvs)/Math.min(...fvs);
+  },[legTensions]);
 
-  // Update global state
   useEffect(()=>{
-    updateG({slingAngle:worstTheta,tensionPerLeg:tension,riggingUtil:util});
-  },[worstTheta,tension,util]);
+    updateG({slingAngle:worstAngle,tensionPerLeg:maxTension,riggingUtil:maxUtil});
+  },[worstAngle,maxTension,maxUtil]);
 
-  // Status badges
-  const angleStatus = worstTheta>=60?"✅ GOOD — High efficiency"
-    :worstTheta>=45?"✅ ACCEPTABLE — Above minimum"
-    :worstTheta>=30?"⚠️ WARNING — Below 45° minimum"
-    :worstTheta>0?"❌ CRITICAL — Prohibited angle":"—";
-  const angleColor = worstTheta>=45?"var(--green-400)":worstTheta>=30?"var(--amber-400)":worstTheta>0?"var(--red-400)":"var(--text-muted)";
-  const hasTooShort = legGeom.some(l=>l.tooShort);
-
-  // ── JSX ────────────────────────────────────────────────────────────────────
+  // ── JSX ─────────────────────────────────────────────────────────────────
   return (
     <div>
-      <div className="module-card">
-        <div className="card-header">
-          <span className="module-title">🪢 Rigging Calculation</span>
-          <span className="std-tag">ASME B30.9 | BS EN 1492 | ISO 12480-1 | ASME P30.1</span>
+    <div className="module-card">
+      <div className="card-header">
+        <span className="module-title">RIGGING CALCULATION</span>
+        <span className="std-tag">ASME B30.9 | BS EN 1492 | ISO 12480-1</span>
+      </div>
+      <div className="card-body">
+
+        {/* LOAD DISTRIBUTION MODE SELECTOR */}
+        <div className="section-heading">Load Distribution Mode</div>
+        <div style={{display:"flex",gap:8,marginBottom:12}}>
+          <button className={"btn "+(loadMode==="uniform"?"btn-primary":"btn-ghost")}
+            style={{flex:1,fontFamily:"Arial,sans-serif"}} onClick={()=>setLoadMode("uniform")}>
+            UNIFORM LOAD — COG at Geometric Centre
+          </button>
+          <button className={"btn "+(loadMode==="nonuniform"?"btn-primary":"btn-ghost")}
+            style={{flex:1,fontFamily:"Arial,sans-serif"}} onClick={()=>setLoadMode("nonuniform")}>
+            NON-UNIFORM LOAD — COG Offset
+          </button>
         </div>
-        <div className="card-body">
+        {loadMode==="uniform"&&(
+          <div className="info-box info-box-blue" style={{marginBottom:8,fontSize:12}}>
+            COG assumed at geometric centre of lift points. Standard ASME B30.9 — equal vertical force per leg pair.
+          </div>
+        )}
+        {loadMode==="nonuniform"&&(
+          <div className="info-box info-box-amber" style={{marginBottom:8,fontSize:12}}>
+            <strong>Non-Uniform Load:</strong> COG offset from geometric centre. Per-leg vertical forces calculated by 2D moment equilibrium (lever rule for 2-legs, Cramer's rule for 3-legs, Ixx/Iyy rigid body for 4-legs). Each leg gets individual tension based on its share of load.
+          </div>
+        )}
 
-          {/* ── STEP 1: DESIGN LOAD ── */}
-          <div className="section-heading">Step 1 — Design Load for Rigging</div>
-          {glwLinked ? (
-            <>
-              <div className="info-box info-box-green" style={{marginBottom:10}}>✅ Weight linked from Weight Calculation Module</div>
-              <div className="form-grid">
-                <div className="form-row"><label className="label-calc">🔵 GLW from Module 2</label><input className="input-calc" value={`${f3(g.glw)} T  =  ${f2(g.glw*9.81)} kN`} readOnly/></div>
-                <div className="form-row"><label className="label-calc">🔵 DAF from Module 3</label><input className="input-calc" value={f2(dafLinked)} readOnly/></div>
-                <div className="form-row"><label className="label-calc">🔵 Design Load = GLW × DAF</label><input className="input-calc" value={`${f3(designLoad)} T  =  ${f2(designLoad*9.81)} kN`} readOnly/></div>
+        {/* STEP 1: DESIGN LOAD */}
+        <div className="section-heading">Step 1 — Design Load</div>
+        {glwLinked?(
+          <div className="form-grid">
+            <div className="form-row"><label className="label-calc">GLW (Module 2)</label><input className="input-calc" value={f3(g.glw)+" T = "+f2(g.glw*9.81)+" kN"} readOnly/></div>
+            <div className="form-row"><label className="label-calc">DAF</label><input className="input-calc" value={f2(g.daf||1.10)} readOnly/></div>
+            <div className="form-row"><label className="label-calc">Design Load = GLW x DAF</label><input className="input-calc" value={f3(designLoad)+" T = "+f2(designLoad*9.81)+" kN"} readOnly/></div>
+          </div>
+        ):(
+          <div className="form-grid">
+            <div className="form-row">
+              <label className="label-input">Manual Load</label>
+              <div className="input-wrap">
+                <input className="input-user" type="number" value={manualLoad} onChange={e=>setManualLoad(e.target.value)} placeholder="0"/>
+                <select className="unit-sel" value={manualLoadU} onChange={e=>setManualLoadU(e.target.value)}>{["kg","T","kN"].map(u=><option key={u}>{u}</option>)}</select>
               </div>
-            </>
-          ) : (
-            <>
-              <div className="info-box info-box-amber" style={{marginBottom:10}}>⚠️ No weight from Weight Module — enter manually below</div>
-              <div className="form-grid">
-                <div className="form-row">
-                  <label className="label-input">🟨 Manual Design Load</label>
-                  <div className="input-wrap">
-                    <input className="input-user" type="number" value={manualLoad} onChange={e=>setManualLoad(e.target.value)} placeholder="0"/>
-                    <select className="unit-sel" value={manualLoadU} onChange={e=>setManualLoadU(e.target.value)}>{["kg","T","kN"].map(u=><option key={u}>{u}</option>)}</select>
-                  </div>
+            </div>
+            <div className="form-row">
+              <label className="label-input">DAF</label>
+              <input className="input-user no-unit" type="number" step="0.01" value={manualDaf} onChange={e=>setManualDaf(e.target.value)} placeholder="1.10"/>
+            </div>
+            <div className="form-row"><label className="label-calc">Design Load</label><input className="input-calc" value={designLoad>0?f3(designLoad)+" T = "+f2(designLoad*9.81)+" kN":"—"} readOnly/></div>
+          </div>
+        )}
+
+        {/* STEP 2: CONFIGURATION */}
+        <div className="section-heading">Step 2 — Sling Configuration</div>
+        <div className="form-grid">
+          <div className="form-row" style={{gridColumn:"1/-1"}}>
+            <label className="label-input">Number of Legs</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              {[1,2,3,4,5,6].map(nl=>(
+                <button key={nl} className={"btn "+(legCount===nl?"btn-primary":"btn-ghost")}
+                  style={{minWidth:60,fontFamily:"Arial,sans-serif",fontWeight:700}}
+                  onClick={()=>setLegCount(nl)}>{nl} {nl===1?"LEG":"LEGS"}</button>
+              ))}
+            </div>
+            {/* Load shape schematic — updates with leg count */}
+            <div style={{marginTop:10,background:"#f8fafc",border:"1px solid #e2e8f0",
+              borderRadius:8,padding:8,display:"inline-block"}}>
+              <LoadSchematic n={n}/>
+            </div>
+          </div>
+          {n>2&&<div className="info-box info-box-orange" style={{gridColumn:"1/-1",fontSize:11}}>
+            <strong>ASME B30.9 Rule:</strong> {n}-leg sling uses {n===3?"3":"3"}-leg worst-case in uniform mode. Non-uniform mode calculates each leg individually.
+          </div>}
+          <div className="form-row" style={{gridColumn:"1/-1"}}>
+            <label className="label-input">Hitch Method</label>
+            <div style={{display:"flex",gap:6}}>
+              <button className={"btn "+(hitch==="direct"?"btn-primary":"btn-ghost")} onClick={()=>setHitch("direct")} style={{flex:1}}>DIRECT x1.00</button>
+              <button className={"btn "+(hitch==="choker"?"btn-primary":"btn-ghost")} onClick={()=>setHitch("choker")} style={{flex:1}}>CHOKER x0.75</button>
+            </div>
+          </div>
+          <div className="form-row">
+            <label className="label-input">Sling Type</label>
+            <select className="input-user no-unit" value={slingType} onChange={e=>setSlingType(e.target.value)}>
+              {["Wire Rope","Chain Grade 80","Chain Grade 100","Round Sling","Webbing Sling"].map(s=><option key={s}>{s}</option>)}
+            </select>
+          </div>
+          <div className="form-row">
+            <label className="label-input">Rated WLL per Leg</label>
+            <div className="input-wrap">
+              <input className="input-user" type="number" value={wll} onChange={e=>setWll(e.target.value)} placeholder="0"/>
+              <select className="unit-sel" value={wllU} onChange={e=>setWllU(e.target.value)}>{["T","kN","kg"].map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+          </div>
+          <div className="form-row">
+            <label className="label-calc">Effective WLL ({hitch==="choker"?"x0.75":"x1.00"})</label>
+            <input className="input-calc" value={wllT>0?f3(wllEff)+" T":"—"} readOnly/>
+          </div>
+        </div>
+
+        {/* STEP 3: SLING LENGTH */}
+        <div className="section-heading">Step 3 — Hook Height / Sling Length</div>
+        <div className="form-grid">
+          <div className="form-row" style={{gridColumn:"1/-1"}}>
+            <label className="label-input">Input Mode</label>
+            <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
+              <button className={"btn btn-sm "+(slingMode==="hookH"?"btn-primary":"btn-ghost")} onClick={()=>setSlingMode("hookH")}>Hook Height to Sling Length</button>
+              <button className={"btn btn-sm "+(slingMode==="slingLen"?"btn-primary":"btn-ghost")} onClick={()=>setSlingMode("slingLen")}>Sling Length to Hook Height</button>
+              <button className={"btn btn-sm "+(slingMode==="angle"?"btn-primary":"btn-ghost")} onClick={()=>setSlingMode("angle")}>Angle to Both</button>
+            </div>
+          </div>
+          {slingMode==="hookH"&&<div className="form-row">
+            <label className="label-input">Hook Height H</label>
+            <div className="input-wrap">
+              <input className="input-user" type="number" value={hookHVal} onChange={e=>setHookHVal(e.target.value)} placeholder="0"/>
+              <select className="unit-sel" value={hookHU} onChange={e=>setHookHU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+          </div>}
+          {slingMode==="slingLen"&&<div className="form-row">
+            <label className="label-input">Sling Length per Leg</label>
+            <div className="input-wrap">
+              <input className="input-user" type="number" value={slingLenVal} onChange={e=>setSlingLenVal(e.target.value)} placeholder="0"/>
+              <select className="unit-sel" value={slingLenU} onChange={e=>setSlingLenU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+          </div>}
+          {slingMode==="angle"&&<div className="form-row">
+            <label className="label-input">Desired Sling Angle (deg)</label>
+            <input className="input-user no-unit" type="number" min="10" max="90" value={desiredAngle} onChange={e=>setDesiredAngle(e.target.value)} placeholder="60"/>
+          </div>}
+        </div>
+
+        {/* STEP 4: GEOMETRY */}
+        <div className="section-heading">Step 4 — Load and Lift Point Geometry</div>
+        <div className="form-grid">
+          <div className="form-row">
+            <label className="label-input">Load Length</label>
+            <div className="input-wrap">
+              <input className="input-user" type="number" value={objL} onChange={e=>setObjL(e.target.value)} placeholder="0"/>
+              <select className="unit-sel" value={objLU} onChange={e=>setObjLU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+          </div>
+          <div className="form-row">
+            <label className="label-input">Load Width</label>
+            <div className="input-wrap">
+              <input className="input-user" type="number" value={objW} onChange={e=>setObjW(e.target.value)} placeholder="0"/>
+              <select className="unit-sel" value={objWU} onChange={e=>setObjWU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+            </div>
+          </div>
+        </div>
+        {n>=2&&(
+          <div style={{background:"var(--bg-section)",border:"1px solid var(--border-default)",borderRadius:"var(--radius-md)",padding:"12px 14px",marginTop:8}}>
+            <div style={{fontFamily:"Arial,sans-serif",fontSize:11,fontWeight:700,color:"var(--text-orange)",marginBottom:8,textTransform:"uppercase",letterSpacing:"0.06em"}}>
+              Lift Point Positions — X,Y from datum corner (0,0). Blank = auto corners.
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(320px,1fr))",gap:8}}>
+              {Array.from({length:n},(_,i)=>(
+                <div key={i} style={{display:"flex",alignItems:"center",gap:6,background:"#fff",padding:"6px 10px",borderRadius:4,border:"1px solid var(--border-default)"}}>
+                  <span style={{fontFamily:"Arial,monospace",fontSize:12,fontWeight:700,color:"var(--text-orange)",minWidth:28}}>{LEG_LABELS[i]||("L"+(i+1))}</span>
+                  <span style={{fontSize:11,color:"var(--text-muted)"}}>X:</span>
+                  <input style={{width:60,fontFamily:"Arial,monospace",fontSize:12,border:"1px solid #ddd",borderRadius:3,padding:"2px 4px"}}
+                    type="number" value={pts[i].x} onChange={e=>setPoint(i,"x",e.target.value)} placeholder={defaultPts[i]?f2(defaultPts[i].x):"—"}/>
+                  <select style={{fontSize:11,border:"1px solid #ddd",borderRadius:3,padding:"1px 2px"}} value={pts[i].xu} onChange={e=>setPoint(i,"xu",e.target.value)}>
+                    {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                  </select>
+                  <span style={{fontSize:11,color:"var(--text-muted)"}}>Y:</span>
+                  <input style={{width:60,fontFamily:"Arial,monospace",fontSize:12,border:"1px solid #ddd",borderRadius:3,padding:"2px 4px"}}
+                    type="number" value={pts[i].y} onChange={e=>setPoint(i,"y",e.target.value)} placeholder={defaultPts[i]?f2(defaultPts[i].y):"—"}/>
+                  <select style={{fontSize:11,border:"1px solid #ddd",borderRadius:3,padding:"1px 2px"}} value={pts[i].yu} onChange={e=>setPoint(i,"yu",e.target.value)}>
+                    {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                  </select>
                 </div>
-                <div className="form-row">
-                  <label className="label-input">🟨 Manual DAF (optional)</label>
-                  <input className="input-user no-unit" type="number" step="0.01" value={manualDaf} onChange={e=>setManualDaf(e.target.value)} placeholder="1.00"/>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STEP 5: COG POSITION (non-uniform only) */}
+        {loadMode==="nonuniform"&&(
+          <>
+            <div className="section-heading">Step 5 — COG Position (Non-Uniform Load)</div>
+
+            {/* Input Method Selector */}
+            <div style={{display:"flex",gap:6,marginBottom:12,flexWrap:"wrap"}}>
+              <button className={"btn btn-sm "+(cogInputMode==="offset"?"btn-primary":"btn-ghost")}
+                style={{fontFamily:"Arial,sans-serif"}} onClick={()=>setCogInputMode("offset")}>
+                Offset from Centre
+              </button>
+              <button className={"btn btn-sm "+(cogInputMode==="absolute"?"btn-primary":"btn-ghost")}
+                style={{fontFamily:"Arial,sans-serif"}} onClick={()=>setCogInputMode("absolute")}>
+                Absolute Coordinates
+              </button>
+
+            </div>
+
+            {/* MODE A: Offset from geometric centre */}
+            {cogInputMode==="offset"&&(
+              <>
+                <div className="info-box info-box-orange" style={{marginBottom:10,fontSize:12}}>
+                  Enter how far the COG is <strong>offset from the geometric centre</strong> of the lifting points.
+                  Positive dX = COG towards leg B/C. Positive dY = COG towards leg C/D.
+                  Zero offset = uniform load (equal leg tensions).
                 </div>
-                <div className="form-row"><label className="label-calc">🔵 Design Load</label><input className="input-calc" value={designLoad>0?`${f3(designLoad)} T  =  ${f2(designLoad*9.81)} kN`:"—"} readOnly/></div>
-              </div>
-            </>
-          )}
-          <div style={{background:"var(--bg-section)",border:"1px solid var(--border-default)",borderRadius:"var(--radius-md)",padding:"12px 16px",marginTop:12,fontFamily:"Arial,monospace",fontSize:11,lineHeight:1.9,color:"var(--text-secondary)"}}>
-            <strong style={{color:"var(--text-orange)"}}>DESIGN LOAD SUMMARY</strong><br/>
-            Source: {glwLinked?"Module 2 Linked":"Manual Entry"}<br/>
-            Design Load: <strong style={{color:"var(--blue-400)"}}>{f3(designLoad)} T  =  {f2(designLoad*9.81)} kN</strong><br/>
-            Formula: Design Load = GLW × DAF  |  Reference: ISO 12480-1 / ASME B30.9
-          </div>
-
-          {/* ── STEP 2: CONFIGURATION ── */}
-          <div className="section-heading">Step 2 — Sling Configuration</div>
-          <div className="form-grid">
-            <div className="form-row" style={{gridColumn:"1/-1"}}>
-              <label className="label-input">🟨 Number of Sling Legs</label>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                {[1,2,3,4,5,6].map(nl=>(
-                  <button key={nl} className={`btn ${legCount===nl?"btn-primary":"btn-ghost"}`}
-                    style={{minWidth:60,fontFamily:"var(--font-display)",fontWeight:700}}
-                    onClick={()=>setLegCount(nl)}>{nl} {nl===1?"LEG":"LEGS"}</button>
-                ))}
-              </div>
-            </div>
-            <div className="form-row" style={{gridColumn:"1/-1"}}>
-              <label className="label-input">🟨 Sling Hitch Method</label>
-              <div style={{display:"flex",gap:6}}>
-                <button className={`btn ${hitch==="direct"?"btn-primary":"btn-ghost"}`} onClick={()=>setHitch("direct")} style={{flex:1}}>DIRECT HITCH</button>
-                <button className={`btn ${hitch==="choker"?"btn-primary":"btn-ghost"}`} onClick={()=>setHitch("choker")} style={{flex:1}}>CHOKER HITCH</button>
-              </div>
-            </div>
-            {hitch==="choker"&&<div className="info-box info-box-amber" style={{gridColumn:"1/-1",fontSize:11}}>⚠️ Choker hitch reduces WLL by 25%. Effective WLL = Rated WLL × 0.75. Minimum 120° choke angle required. Reference: ASME B30.9 Table N-1</div>}
-            {hitch==="direct"&&<div style={{gridColumn:"1/-1",fontSize:11,color:"var(--text-muted)",fontFamily:"Arial,monospace"}}>Direct hitch — full rated WLL applies.</div>}
-            <div className="form-row">
-              <label className="label-input">🟨 Sling Type</label>
-              <select className="input-user no-unit" value={slingType} onChange={e=>setSlingType(e.target.value)}>
-                {["Wire Rope","Chain Grade 80","Chain Grade 100","Round Sling","Webbing Sling"].map(s=><option key={s}>{s}</option>)}
-              </select>
-            </div>
-            <div className="form-row"><label className="label-calc">🔵 Load-Bearing Legs</label><input className="input-calc" value={`${loadBearingN} of ${n} ${n>2?"(ASME B30.9 worst-case rule)":""}`} readOnly/></div>
-          </div>
-
-          {/* ── STEP 3: WLL + LENGTH ── */}
-          <div className="section-heading">Step 3 — Sling WLL & Length</div>
-          <div className="form-grid">
-            <div className="form-row">
-              <label className="label-input">🟨 Rated WLL per Leg</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" value={wll} onChange={e=>setWll(e.target.value)} placeholder="0"/>
-                <select className="unit-sel" value={wllU} onChange={e=>setWllU(e.target.value)}>{["T","kN","kg"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>
-            <div className="form-row">
-              <label className="label-calc">🔵 Effective WLL per Leg ({hitch==="choker"?"×0.75":"×1.00"})</label>
-              <input className="input-calc" value={wllT>0?`${f3(wllEff)} T`:"—"} readOnly/>
-            </div>
-            <div className="form-row" style={{gridColumn:"1/-1"}}>
-              <label className="label-input">🟨 Sling Length Mode</label>
-              <div style={{display:"flex",gap:6,flexWrap:"wrap"}}>
-                <button className={`btn btn-sm ${slingMode==="hookH"?"btn-primary":"btn-ghost"}`} onClick={()=>setSlingMode("hookH")}>Hook Height → Auto S</button>
-                <button className={`btn btn-sm ${slingMode==="slingLen"?"btn-primary":"btn-ghost"}`} onClick={()=>setSlingMode("slingLen")}>Sling Length → Auto H</button>
-                <button className={`btn btn-sm ${slingMode==="angle"?"btn-primary":"btn-ghost"}`} onClick={()=>setSlingMode("angle")}>Sling Angle → Auto S&H</button>
-              </div>
-            </div>
-            {slingMode==="hookH"&&<div className="form-row">
-              <label className="label-input">🟨 Hook Height H</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" value={hookHVal} onChange={e=>setHookHVal(e.target.value)} placeholder="0"/>
-                <select className="unit-sel" value={hookHU} onChange={e=>setHookHU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>}
-            {slingMode==="slingLen"&&<div className="form-row">
-              <label className="label-input">🟨 Sling Length S per Leg</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" value={slingLenVal} onChange={e=>setSlingLenVal(e.target.value)} placeholder="0"/>
-                <select className="unit-sel" value={slingLenU} onChange={e=>setSlingLenU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>}
-            {slingMode==="angle"&&<div className="form-row">
-              <label className="label-input">🟨 Desired Sling Angle θh (°)</label>
-              <input className="input-user no-unit" type="number" min="10" max="90" value={desiredAngle} onChange={e=>setDesiredAngle(e.target.value)} placeholder="60"/>
-            </div>}
-            <div className="form-row">
-              <label className="label-input" title="Vertical distance from hook pin to first attachment point. Default 0.150m.">🟨 Shackle + Fitting Height below Hook ⓘ</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" step="0.001" value={shackleH} onChange={e=>setShackleH(e.target.value)} placeholder="0.150"/>
-                <select className="unit-sel" value={shackleHU} onChange={e=>setShackleHU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>
-          </div>
-
-          {/* ── STEP 4: GEOMETRY ── */}
-          <div className="section-heading">Step 4 — Lifting Point Geometry</div>
-          <div className="form-grid">
-            <div className="form-row">
-              <label className="label-input">🟨 Object Total Length</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" value={objL} onChange={e=>setObjL(e.target.value)} placeholder="0"/>
-                <select className="unit-sel" value={objLU} onChange={e=>setObjLU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>
-            <div className="form-row">
-              <label className="label-input">🟨 Object Width</label>
-              <div className="input-wrap">
-                <input className="input-user" type="number" value={objW} onChange={e=>setObjW(e.target.value)} placeholder="0"/>
-                <select className="unit-sel" value={objWU} onChange={e=>setObjWU(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-              </div>
-            </div>
-          </div>
-
-          {/* 2-leg */}
-          {n===2 && (
-            <>
-              <div className="info-box info-box-orange" style={{marginBottom:8,fontSize:11}}>
-                2-leg standard: lifting points at 25% and 75% of object length. Distance = 0.50 × L.<br/>
-                d(A-B) = 0.75L – 0.25L = 0.50L. Quarter-points minimise bending moment on object.
-              </div>
-              <div style={{display:"flex",gap:8,marginBottom:8}}>
-                <button className={`btn btn-sm ${!customPos2?"btn-primary":"btn-ghost"}`} onClick={()=>setCustomPos2(false)}>Use 25%/75% Standard</button>
-                <button className={`btn btn-sm ${customPos2?"btn-primary":"btn-ghost"}`} onClick={()=>setCustomPos2(true)}>Custom Positions</button>
-              </div>
-              {customPos2&&(
                 <div className="form-grid">
                   <div className="form-row">
-                    <label className="label-input">🟨 Point A — distance from left end</label>
+                    <label className="label-input">COG Offset — dX (along length)</label>
                     <div className="input-wrap">
-                      <input className="input-user" type="number" value={ptAx2} onChange={e=>setPtAx2(e.target.value)}/>
-                      <select className="unit-sel" value={ptAx2U} onChange={e=>setPtAx2U(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+                      <input className="input-user" type="number" step="0.01"
+                        value={cogDX} onChange={e=>setCogDX(e.target.value)} placeholder="0"/>
+                      <select className="unit-sel" value={cogDXU} onChange={e=>setCogDXU(e.target.value)}>
+                        {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                      </select>
                     </div>
                   </div>
                   <div className="form-row">
-                    <label className="label-input">🟨 Point B — distance from left end</label>
+                    <label className="label-input">COG Offset — dY (across width)</label>
                     <div className="input-wrap">
-                      <input className="input-user" type="number" value={ptBx2} onChange={e=>setPtBx2(e.target.value)}/>
-                      <select className="unit-sel" value={ptBx2U} onChange={e=>setPtBx2U(e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
+                      <input className="input-user" type="number" step="0.01"
+                        value={cogDY} onChange={e=>setCogDY(e.target.value)} placeholder="0"/>
+                      <select className="unit-sel" value={cogDYU} onChange={e=>setCogDYU(e.target.value)}>
+                        {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                      </select>
                     </div>
                   </div>
-                </div>
-              )}
-              <div className="form-grid">
-                <div className="form-row"><label className="label-calc">🔵 Point A — X position</label><input className="input-calc" value={ObjL>0?`${f3(pt2A)} m (${fN(pt2A/ObjL*100,1)}% of L)`:"—"} readOnly/></div>
-                <div className="form-row"><label className="label-calc">🔵 Point B — X position</label><input className="input-calc" value={ObjL>0?`${f3(pt2B)} m (${fN(pt2B/ObjL*100,1)}% of L)`:"—"} readOnly/></div>
-                <div className="form-row"><label className="label-calc">🔵 Distance A to B</label><input className="input-calc" value={ObjL>0?`${f3(Math.abs(pt2B-pt2A))} m`:"—"} readOnly/></div>
-              </div>
-            </>
-          )}
-
-          {/* 3/4/5/6-leg coordinate entry */}
-          {n>=3 && (
-            <>
-              {ObjL>0&&ObjW>0&&<div className="info-box info-box-blue" style={{marginBottom:8,fontSize:11}}>
-                Auto-default positions: {n===3?"A=(0,0), B=(L,0), C=(L÷2,W)":n===4?"A=(0,0), B=(L,0), C=(L,W), D=(0,W)":"Enter X/Y from datum"}. Override by entering values below.
-              </div>}
-              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(260px,1fr))",gap:8}}>
-                {Array.from({length:n},(_,i)=>(
-                  <div key={i} style={{background:"var(--bg-section)",border:"1px solid var(--border-default)",borderRadius:"var(--radius-md)",padding:"12px 14px"}}>
-                    <div style={{fontFamily:"var(--font-display)",fontSize:11,color:"var(--text-orange)",letterSpacing:"0.1em",textTransform:"uppercase",marginBottom:8}}>
-                      Lifting Point {LEG_LABELS[i]}
-                    </div>
-                    <div className="form-row" style={{marginBottom:6}}>
-                      <label className="label-input">X from datum</label>
-                      <div className="input-wrap">
-                        <input className="input-user" type="number" value={pts[i].x} onChange={e=>setPoint(i,'x',e.target.value)} placeholder={defaultPts[i]?f3(defaultPts[i].x):"0"}/>
-                        <select className="unit-sel" value={pts[i].xu} onChange={e=>setPoint(i,'xu',e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-                      </div>
+                  {hookPos&&<>
+                    <div className="form-row">
+                      <label className="label-calc">Geometric Centre (Hook Position)</label>
+                      <input className="input-calc" value={"X="+f3(hookPos.x)+"m  Y="+f3(hookPos.y)+"m"} readOnly/>
                     </div>
                     <div className="form-row">
-                      <label className="label-input">Y from datum</label>
-                      <div className="input-wrap">
-                        <input className="input-user" type="number" value={pts[i].y} onChange={e=>setPoint(i,'y',e.target.value)} placeholder={defaultPts[i]?f3(defaultPts[i].y):"0"}/>
-                        <select className="unit-sel" value={pts[i].yu} onChange={e=>setPoint(i,'yu',e.target.value)}>{["mm","cm","m"].map(u=><option key={u}>{u}</option>)}</select>
-                      </div>
+                      <label className="label-calc">COG Absolute Position</label>
+                      <input className="input-calc"
+                        value={cogAbs?"X="+f3(cogAbs.x)+"m  Y="+f3(cogAbs.y)+"m":"—"} readOnly/>
                     </div>
-                    {effPts[i]&&hookPos&&<div style={{fontSize:10,color:"var(--blue-400)",fontFamily:"Arial,monospace",marginTop:6}}>
-                      d_plan = {f3(Math.sqrt(Math.pow(hookPos.x-effPts[i].x,2)+Math.pow(hookPos.y-effPts[i].y,2)))} m
-                    </div>}
-                  </div>
-                ))}
-              </div>
+                  </>}
+                </div>
+              </>
+            )}
 
-              {/* Distance table for 4-leg */}
-              {n===4&&effPts.length>=4&&(
-                <div className="table-wrap" style={{marginTop:12}}>
-                  <table className="data-table">
-                    <thead><tr><th>Pair</th><th>Formula</th><th>Distance</th><th></th></tr></thead>
-                    <tbody>
-                      {[["A","B",0,1],["B","C",1,2],["C","D",2,3],["D","A",3,0]].map(([la,lb,ia,ib])=>{
-                        const d=effPts[ia]&&effPts[ib]?f3(Math.sqrt(Math.pow(effPts[ib].x-effPts[ia].x,2)+Math.pow(effPts[ib].y-effPts[ia].y,2))):"—";
-                        return <tr key={la+lb}><td style={{fontFamily:"Arial,monospace",color:"var(--orange-500)"}}>{la}→{lb}</td><td style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace"}}>√[(x{lb}-x{la})²+(y{lb}-y{la})²]</td><td style={{fontFamily:"Arial,monospace",color:"var(--blue-400)"}}>{d} m</td><td></td></tr>;
-                      })}
-                      {[["Diagonal A↔C",0,2],["Diagonal B↔D",1,3]].map(([lbl,ia,ib])=>{
-                        const d=effPts[ia]&&effPts[ib]?Math.sqrt(Math.pow(effPts[ib].x-effPts[ia].x,2)+Math.pow(effPts[ib].y-effPts[ia].y,2)):0;
-                        const dAC=effPts[0]&&effPts[2]?Math.sqrt(Math.pow(effPts[2].x-effPts[0].x,2)+Math.pow(effPts[2].y-effPts[0].y,2)):0;
-                        const dBD=effPts[1]&&effPts[3]?Math.sqrt(Math.pow(effPts[3].x-effPts[1].x,2)+Math.pow(effPts[3].y-effPts[1].y,2)):0;
-                        const isWorst=(ia===0&&d>=dBD)||(ia===1&&d>dAC);
-                        return <tr key={lbl} style={{background:isWorst?"rgba(249,115,22,0.08)":""}}><td style={{fontFamily:"Arial,monospace",color:isWorst?"var(--orange-500)":"var(--text-muted)"}}>{lbl}</td><td style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace"}}>√[(Δx)²+(Δy)²]</td><td style={{fontFamily:"Arial,monospace",color:"var(--blue-400)"}}>{d>0?f3(d):"—"} m</td><td>{isWorst&&<span className="badge badge-warn" style={{fontSize:9}}>WORST</span>}</td></tr>;
-                      })}
-                    </tbody>
-                  </table>
-                  <div style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace",marginTop:4}}>Worst-case diagonal used for angle calculation. Reference: ASME B30.9</div>
+            {/* MODE B: Absolute X,Y from datum */}
+            {cogInputMode==="absolute"&&(
+              <>
+                <div className="info-box info-box-orange" style={{marginBottom:10,fontSize:12}}>
+                  Enter the <strong>absolute COG position</strong> measured from the datum corner (0,0) —
+                  same reference as the lift point coordinates entered above.
+                </div>
+                <div className="form-grid">
+                  <div className="form-row">
+                    <label className="label-input">COG — X Position (from datum corner)</label>
+                    <div className="input-wrap">
+                      <input className="input-user" type="number" step="0.01"
+                        value={cogX} onChange={e=>setCogX(e.target.value)}
+                        placeholder={hookPos?f3(hookPos.x):"0"}/>
+                      <select className="unit-sel" value={cogXU} onChange={e=>setCogXU(e.target.value)}>
+                        {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="form-row">
+                    <label className="label-input">COG — Y Position (from datum corner)</label>
+                    <div className="input-wrap">
+                      <input className="input-user" type="number" step="0.01"
+                        value={cogY} onChange={e=>setCogY(e.target.value)}
+                        placeholder={hookPos?f3(hookPos.y):"0"}/>
+                      <select className="unit-sel" value={cogYU} onChange={e=>setCogYU(e.target.value)}>
+                        {["mm","cm","m"].map(u=><option key={u}>{u}</option>)}
+                      </select>
+                    </div>
+                  </div>
+                  {hookPos&&cogAbs&&<>
+                    <div className="form-row">
+                      <label className="label-calc">dX from centre</label>
+                      <input className="input-calc" value={f3(cogAbs.x-hookPos.x)+" m"} readOnly/>
+                    </div>
+                    <div className="form-row">
+                      <label className="label-calc">dY from centre</label>
+                      <input className="input-calc" value={f3(cogAbs.y-hookPos.y)+" m"} readOnly/>
+                    </div>
+                  </>}
+                </div>
+              </>
+            )}
+
+            {/* COG warning if offset exists */}
+            {hasCogOffset&&(
+              <div className="info-box info-box-amber" style={{marginTop:8,fontSize:12}}>
+                COG is offset from hook centreline by
+                dX={f3(cogOffset.x)}m, dY={f3(cogOffset.y)}m
+                (distance={f3(Math.sqrt(cogOffset.x**2+cogOffset.y**2))}m).
+                Legs closer to COG carry more load. Load WILL tilt unless hook is repositioned
+                above COG or sling lengths are adjusted.
+              </div>
+            )}
+          </>
+        )}
+
+                {/* RESULTS */}
+        {legTensions.length>0&&designLoad>0&&(
+          <>
+            <div className="section-heading">{loadMode==="nonuniform"?"Step 6":"Step 5"} — Results per Leg</div>
+            <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(190px,1fr))",gap:10,marginBottom:14}}>
+              <div className="stat-card">
+                <div className="stat-label">Worst Leg Tension</div>
+                <div className="stat-val">{f3(maxTension)} <span className="stat-unit">T</span></div>
+                <div style={{fontSize:11,color:"var(--text-muted)",fontFamily:"Arial,monospace"}}>{f2(maxTension*9.81)} kN</div>
+              </div>
+              <div className="stat-card">
+                <div className="stat-label">Worst Sling Angle</div>
+                <div className="stat-val" style={{color:angleColor}}>{worstAngle>0?f1(worstAngle)+"°":"—"}</div>
+              </div>
+              <div className={"stat-card util-"+utilCls}>
+                <div className="stat-label">WLL Utilisation</div>
+                <div className="stat-val">{maxUtil>0?f1(maxUtil)+"%":"—"}</div>
+                <div style={{marginTop:6}}><div className="util-bar-wrap"><div className="util-bar-fill" style={{width:Math.min(maxUtil,100)+"%",background:maxUtil>100?"#991b1b":maxUtil>85?"#dc2626":maxUtil>75?"#d97706":"#16a34a"}}/></div></div>
+              </div>
+              {loadMode==="nonuniform"&&hasCogOffset&&imbalanceRatio>0&&(
+                <div className="stat-card" style={{border:"1px solid #fde68a",background:"#fffbeb"}}>
+                  <div className="stat-label">Load Imbalance Ratio</div>
+                  <div className="stat-val" style={{color:"#d97706",fontSize:18}}>{f2(imbalanceRatio)}:1</div>
+                  <div style={{fontSize:11,color:"#92400e"}}>Max/Min leg load</div>
                 </div>
               )}
-            </>
-          )}
+            </div>
 
-          {/* ── STEP 5: ANGLE TABLE ── */}
-          <div className="section-heading">Step 5 — Angle Calculations</div>
-          {hookPos&&<div className="form-grid">
-            <div className="form-row"><label className="label-calc">🔵 Hook Centroid X</label><input className="input-calc" value={f3(hookPos.x)+" m"} readOnly/></div>
-            <div className="form-row"><label className="label-calc">🔵 Hook Centroid Y</label><input className="input-calc" value={f3(hookPos.y)+" m"} readOnly/></div>
-          </div>}
-          {legGeom.length>0 && (
-            <>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead><tr><th>Leg</th><th>d_plan (m)</th><th>H_hook (m)</th><th>S_sling (m)</th><th>θv (°)</th><th>θh (°)</th><th>K Factor</th><th>Role</th></tr></thead>
-                  <tbody>{legGeom.map(({leg,dPlan,H,S,thetaH,K,tooShort},i)=>{
-                    const isLB=lbLegs.includes(i);
-                    const c=tooShort?"var(--red-400)":thetaH>=45?"var(--green-400)":thetaH>=30?"var(--amber-400)":thetaH>0?"var(--red-400)":"var(--text-muted)";
-                    const thetaV=thetaH>0?90-thetaH:0;
+            <div className="table-wrap">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Leg</th>
+                    <th>Dist to COG (m)</th>
+                    <th>Sling Angle (°)</th>
+                    <th>K = sin θ</th>
+                    {loadMode==="nonuniform"&&<th>Vert. Force (T)</th>}
+                    <th>Leg Tension (T)</th>
+                    <th>WLL Util %</th>
+                    <th>Min Sling Length (m)</th>
+                    {loadMode==="nonuniform"&&hasCogOffset&&<th>Adj vs Equal Slings</th>}
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {legTensions.map((lt,i)=>{
+                    const lg=legGeom[i];
+                    const isWorst=lt.tension===maxTension;
+                    const adjAbs=lg?Math.abs(lg.dS):0;
+                    const adjColor=lg&&lg.dS>0.005?"#2563eb":lg&&lg.dS<-0.005?"#ea6c00":"#16a34a";
                     return (
-                      <tr key={leg} className={worstLeg&&leg===worstLeg.leg?"highlight":""}>
-                        <td style={{fontFamily:"Arial,monospace",color:"var(--orange-500)",fontWeight:700}}>{leg}</td>
-                        <td style={{fontFamily:"Arial,monospace"}}>{dPlan>=0?f3(dPlan):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace",color:"var(--blue-400)"}}>{tooShort?"❌":H>0?f3(H):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace"}}>{S>0?f3(S):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace"}}>{thetaV>0?f2(thetaV):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace",color:c,fontWeight:600}}>{thetaH>0?f2(thetaH):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace",color:c}}>{K>0?f3(K):"—"}</td>
-                        <td><span className={`badge ${isLB?(thetaH>=45?"badge-pass":thetaH>=30?"badge-warn":"badge-fail"):"badge-idle"}`}>{isLB?"LOAD":"BALANCE"}</span></td>
-                      </tr>
+                    <tr key={i} className={isWorst?"highlight":""}>
+                      <td style={{fontFamily:"Arial,monospace",fontWeight:700,color:"var(--text-orange)"}}>{lt.leg}</td>
+                      <td style={{fontFamily:"Arial,monospace",fontWeight:isWorst?700:400}}>
+                        {lg?f3(lg.dCog):"—"}
+                      </td>
+                      <td style={{color:lt.thetaH>=45?"var(--green-400)":lt.thetaH>=30?"var(--amber-400)":"var(--red-400)",fontWeight:700}}>
+                        {f1(lt.thetaH)}°
+                      </td>
+                      <td style={{fontFamily:"Arial,monospace"}}>{f3(lt.K)}</td>
+                      {loadMode==="nonuniform"&&<td style={{fontFamily:"Arial,monospace",fontWeight:700}}>{f3(lt.Fv)}</td>}
+                      <td style={{fontFamily:"Arial,monospace",fontWeight:700,color:isWorst?"var(--red-400)":"inherit"}}>
+                        {f3(lt.tension)} T
+                      </td>
+                      <td style={{fontFamily:"Arial,monospace",color:lt.util>100?"var(--red-400)":lt.util>85?"var(--amber-400)":"inherit",fontWeight:700}}>
+                        {f1(lt.util)}%
+                      </td>
+                      <td style={{fontFamily:"Arial,monospace",fontWeight:700,color:"#1d4ed8"}}>
+                        {lt.tooShort
+                          ? <span style={{color:"var(--red-400)"}}>Too short</span>
+                          : f3(lt.S)+" m"}
+                      </td>
+                      {loadMode==="nonuniform"&&hasCogOffset&&(
+                        <td style={{fontFamily:"Arial,monospace",fontWeight:700,color:adjColor}}>
+                          {lg&&adjAbs>0.005
+                            ? (lg.dS>0?"+":"")+f3(lg.dS)+" m "+(lg.dS>0.005?"↑ Lengthen":"↓ Shorten")
+                            : "— Equal"}
+                        </td>
+                      )}
+                      <td><span className={"badge badge-"+(lt.util<=100&&lt.tension>0?"pass":"fail")}>
+                        {lt.util<=100&&lt.tension>0?"OK":"OVER"}
+                      </span></td>
+                    </tr>
+                  );
+                  })}
+                </tbody>
+              </table>
+            </div>
+
+            {/* Sling Length Adjustment Summary (non-uniform only) */}
+            {loadMode==="nonuniform"&&hasCogOffset&&legGeom.length>0&&(
+              <div style={{marginTop:14,background:"#eff6ff",border:"1.5px solid #bfdbfe",
+                borderLeft:"4px solid #2563eb",borderRadius:8,padding:"14px 18px"}}>
+                <div style={{fontFamily:"Arial,sans-serif",fontSize:12,fontWeight:700,
+                  color:"#1e40af",textTransform:"uppercase",letterSpacing:"0.08em",marginBottom:10}}>
+                  Required Sling Lengths — Non-Uniform Load
+                </div>
+                <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(180px,1fr))",gap:8}}>
+                  {legGeom.map((lg,i)=>{
+                    const col=lg.dS>0.005?"#2563eb":lg.dS<-0.005?"#ea6c00":"#16a34a";
+                    const bg=lg.dS>0.005?"#eff6ff":lg.dS<-0.005?"#fff7ed":"#f0fdf4";
+                    const bdr=lg.dS>0.005?"#bfdbfe":lg.dS<-0.005?"#fed7aa":"#86efac";
+                    return (
+                      <div key={i} style={{background:bg,border:"1px solid "+bdr,
+                        borderRadius:6,padding:"10px 12px",textAlign:"center"}}>
+                        <div style={{fontFamily:"Arial,sans-serif",fontSize:13,
+                          fontWeight:700,color:"var(--text-orange)",marginBottom:4}}>
+                          {lg.leg}
+                        </div>
+                        <div style={{fontFamily:"Arial,monospace",fontSize:16,
+                          fontWeight:700,color:"#1d4ed8",marginBottom:2}}>
+                          {f3(lg.S)} m
+                        </div>
+                        <div style={{fontFamily:"Arial,sans-serif",fontSize:10,
+                          color:"#6b7280",marginBottom:4}}>
+                          dist to COG: {f3(lg.dCog)} m
+                        </div>
+                        <div style={{fontFamily:"Arial,monospace",fontSize:11,
+                          fontWeight:700,color:col}}>
+                          {Math.abs(lg.dS)<0.005
+                            ?"Equal length"
+                            :(lg.dS>0?"+":"")+f3(lg.dS)+" m vs equal"}
+                        </div>
+                        <div style={{fontFamily:"Arial,sans-serif",fontSize:10,
+                          fontWeight:700,color:col,marginTop:2}}>
+                          {lg.dS>0.005?"↑ LENGTHEN":lg.dS<-0.005?"↓ SHORTEN":"✓ EQUAL"}
+                        </div>
+                      </div>
                     );
-                  })}</tbody>
-                </table>
+                  })}
+                </div>
+                <div style={{fontFamily:"Arial,sans-serif",fontSize:11,color:"#6b7280",
+                  marginTop:10,borderTop:"1px solid #bfdbfe",paddingTop:8}}>
+                  Ref: ASME B30.9 / LEEA COPSULE 2020 — Sling lengths adjusted so hook hangs
+                  directly above COG. Use turnbuckles, shackle extensions, or different
+                  physical sling lengths to achieve required adjustment on site.
+                </div>
               </div>
-              {hasTooShort&&<div className="info-box info-box-red" style={{marginTop:6,fontSize:11}}>❌ SLING TOO SHORT — S must be greater than d_plan. Increase sling length or reduce horizontal spread.</div>}
-              {worstTheta>0&&worstTheta<30&&<div className="info-box info-box-red" style={{marginTop:6,fontSize:11}}>❌ Sling angle {f2(worstTheta)}° critically low — DO NOT PROCEED. Leg tension is dangerously high. Reference: ASME B30.9</div>}
-              {worstTheta>=30&&worstTheta<45&&<div className="info-box info-box-amber" style={{marginTop:6,fontSize:11}}>⚠️ Sling angle {f2(worstTheta)}° below 45° minimum — redesign rigging or increase hook height. Reference: ASME B30.9</div>}
-              {worstLeg&&<div style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace",marginTop:8,lineHeight:1.8}}>
-                Governing (worst-case) leg: <strong style={{color:"var(--orange-500)"}}>{worstLeg.leg}</strong> | θh={f2(worstTheta)}° | K={f3(bestK)}<br/>
-                Formula: d=√[(ΔX)²+(ΔY)²] | H=√(S²−d²) | θv=arctan(d÷H) | θh=90°−θv | K=sin(θh) | S²=d²+H²
-              </div>}
-            </>
-          )}
-
-          {/* ── STEP 6: TENSION CALCULATION ── */}
-          <div className="section-heading">Step 6 — Tension Calculation</div>
-          <div className="grid-4">
-            <div className="stat-card"><div className="stat-label">Design Load W</div><div className="stat-val">{f2(designLoad)}<span className="stat-unit">T</span></div></div>
-            <div className="stat-card"><div className="stat-label">K Factor (worst)</div><div className="stat-val" style={{color:"var(--blue-400)"}}>{bestK>0?f3(bestK):"—"}</div></div>
-            <div className="stat-card"><div className="stat-label">Tension per Leg</div><div className="stat-val" style={{color:"var(--blue-400)"}}>{tension>0?f2(tension):"—"}<span className="stat-unit">T</span></div></div>
-            <div className="stat-card" style={{background:util>90?"var(--red-bg)":util>75?"var(--amber-bg)":util>0?"var(--green-bg)":""}}>
-              <div className="stat-label">Utilization</div>
-              <div className="stat-val" style={{color:util>90?"var(--red-400)":util>75?"var(--amber-400)":util>0?"var(--green-400)":"var(--text-muted)"}}>{util>0?f2(util):"—"}<span className="stat-unit">{util>0?"%":""}</span></div>
+            )}
+            <div style={{background:"var(--bg-section)",border:"1px solid var(--border-default)",
+              borderLeft:"3px solid var(--orange-500)",borderRadius:"var(--radius-md)",
+              padding:"12px 16px",marginTop:12,fontFamily:"Arial,monospace",fontSize:11,lineHeight:2.0}}>
+              {"Design Load: "+f3(designLoad)+" T ("+f2(designLoad*9.81)+" kN)"}<br/>
+              {loadMode==="nonuniform"&&cogAbs?("COG: X="+f3(cogAbs.x)+" m, Y="+f3(cogAbs.y)+" m | Offset from centre: dX="+f3(cogOffset.x)+" m, dY="+f3(cogOffset.y)+" m"):("Load distribution: Uniform — equal vertical share per leg")}
+              {loadMode==="nonuniform"&&<br/>}
+              {loadMode==="nonuniform"&&("Method: "+(n===2?"Lever rule (1D moment equilibrium)":n===3?"Exact 2D statics — Cramers rule":"4-point rigid body — Ixx/Iyy moment of inertia"))}
+              <br/>
+              {"Worst leg: "+f3(maxTension)+" T at "+f1(worstAngle)+"° | Formula: T = Fv/sin(theta) | ASME B30.9 / ISO 12480-1 Sec.7.3"}
             </div>
-          </div>
-          <UtilBar value={util} label="Sling Utilization"/>
 
-          {/* Results table */}
-          {tension>0&&(
-            <div style={{background:"var(--bg-section)",border:"1px solid var(--border-default)",borderRadius:"var(--radius-md)",padding:"14px 16px",marginTop:12}}>
-              <div style={{fontFamily:"Arial,monospace",fontSize:11,color:"var(--text-secondary)",lineHeight:1.9,marginBottom:10}}>
-                <strong style={{color:"var(--text-orange)"}}>TENSION RESULTS</strong><br/>
-                Design Load: {f3(designLoad)} T = {f2(designLoad*9.81)} kN | Hitch: {hitch==="choker"?"Choker (×0.75)":"Direct (×1.00)"}<br/>
-                Load-bearing legs: {loadBearingN} of {n} | K factor (worst case): {f3(bestK)}
-              </div>
-              <div className="table-wrap">
-                <table className="data-table">
-                  <thead><tr><th>Leg</th><th>Role</th><th>Tension (T)</th><th>Rated WLL (T)</th><th>Eff. WLL (T)</th><th>Utilization</th></tr></thead>
-                  <tbody>{legGeom.map(({leg},i)=>{
-                    const isLB=lbLegs.includes(i);
-                    const T=isLB?tension:0;
-                    const u=wllEff>0&&T>0?T/wllEff*100:0;
-                    const uc=u>90?"var(--red-400)":u>75?"var(--amber-400)":"var(--green-400)";
-                    return(
-                      <tr key={leg}>
-                        <td style={{fontFamily:"Arial,monospace",color:"var(--orange-500)",fontWeight:700}}>{leg}</td>
-                        <td><span className={`badge ${isLB?"badge-pass":"badge-idle"}`}>{isLB?"LOAD":"BALANCE"}</span></td>
-                        <td style={{fontFamily:"Arial,monospace",color:"var(--blue-400)"}}>{isLB?f3(T):"— (0)"}</td>
-                        <td style={{fontFamily:"Arial,monospace"}}>{wllT>0?f3(wllT):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace"}}>{wllT>0?f3(wllEff):"—"}</td>
-                        <td style={{fontFamily:"Arial,monospace",color:isLB?uc:"var(--text-muted)"}}>{isLB?`${f2(u)}% ${u>90?"❌":u>75?"⚠️":"✅"}`:"N/A"}</td>
-                      </tr>
-                    );
-                  })}</tbody>
-                </table>
-              </div>
-              <div style={{marginTop:10,fontFamily:"Arial,monospace",fontSize:11,color:"var(--text-secondary)",lineHeight:1.9}}>
-                Max Tension = <strong style={{color:"var(--blue-400)"}}>{f3(tension)} T</strong><br/>
-                Required WLL ≥ <strong style={{color:"var(--blue-400)"}}>{f3(tension)} T</strong> per load-bearing leg<br/>
-                Your WLL_eff = <strong style={{color:wllEff>=tension?"var(--green-400)":"var(--red-400)"}}>{wllEff>0?f3(wllEff):"—"} T</strong><br/>
-                WLL Adequate: <strong style={{color:wllEff>=tension?"var(--green-400)":"var(--red-400)"}}>{wllT>0?(wllEff>=tension?"✅ YES":"❌ NO — Upgrade slings. Required WLL ≥ "+f3(tension/0.75)+" T rated"):"Enter WLL"}</strong>
-              </div>
+            <div style={{marginTop:14}}>
+              <span className={"badge badge-"+(maxUtil<=100&&legTensions.every(l=>!l.tooShort)?"pass":maxUtil<=110?"warn":"fail")}
+                style={{fontSize:13,padding:"6px 16px"}}>
+                {maxUtil<=100&&legTensions.every(l=>!l.tooShort)
+                  ?"RIGGING ADEQUATE — All legs within WLL"
+                  :maxUtil<=110?"WARNING — Worst leg near WLL — upgrade sling"
+                  :"RIGGING INADEQUATE — Upgrade sling WLL or change configuration"}
+              </span>
             </div>
-          )}
+          </>
+        )}
 
-          {/* Step-by-step breakdown */}
-          {tension>0&&worstLeg&&(
-            <div style={{background:"#0a0a0a",border:"1px solid #1e1e1e",borderLeft:"3px solid var(--orange-700)",borderRadius:"var(--radius-sm)",padding:"14px 18px",marginTop:12,fontFamily:"Arial,monospace",fontSize:11,lineHeight:2.0,color:"var(--text-secondary)"}}>
-              <strong style={{color:"var(--text-orange)"}}>FULL CALCULATION BREAKDOWN</strong><br/>
-              Step 1 — Design Load: W = {glwLinked?`GLW × DAF = ${f3(g.glw)} × ${f2(dafLinked)} = ${f3(designLoad)} T`:`Manual = ${f3(designLoad)} T`}<br/>
-              Step 2 — Worst-case plan distance: d = {f3(worstLeg.dPlan)} m (Leg {worstLeg.leg} — largest d, smallest θh)<br/>
-              Step 3 — Hook Height: H = {slingMode==="slingLen"?`√(S²−d²) = √(${f2(worstLeg.S)}²−${f2(worstLeg.dPlan)}²) = ${f3(worstLeg.H)} m`:`${f3(worstLeg.H)} m (entered)`}<br/>
-              Step 4 — Sling Angle: θv = arctan({f2(worstLeg.dPlan)}÷{f2(worstLeg.H)}) = {f2(90-worstTheta)}° | θh = 90°−θv = {f2(worstTheta)}° | K = sin({f2(worstTheta)}°) = {f3(bestK)}<br/>
-              Step 5 — Load-bearing legs: {n} total → {loadBearingN} load-bearing (ASME B30.9 worst-case rule)<br/>
-              Step 6 — T = W ÷ (n × K) = {f3(designLoad)} ÷ ({loadBearingN} × {f3(bestK)}) = {f3(designLoad/(loadBearingN*bestK))} = <strong style={{color:"var(--blue-400)"}}>{f3(tension)} T = {f2(tension*9.81)} kN</strong><br/>
-              Step 7 — Hitch factor: WLL_eff = {wllT>0?f3(wllT):"?"}T × {hitch==="choker"?"0.75":"1.00"} = {wllT>0?f3(wllEff):"?"}T<br/>
-              Step 8 — U% = {f3(tension)} ÷ {wllEff>0?f3(wllEff):"?"} × 100 = <strong style={{color:util>90?"var(--red-400)":util>75?"var(--amber-400)":"var(--green-400)"}}>{wllEff>0?f2(util):"?"}%</strong><br/>
-              Reference: ASME B30.9 Table N-1
-            </div>
-          )}
-
-          {/* ── STEP 7: DIAGRAMS ── */}
-          <div className="section-heading">Step 7 — Live Rigging Diagrams (3 Views)</div>
-          <div style={{display:"grid",gridTemplateColumns:"1fr 1fr 1fr",gap:8}}>
-            {/* Plan view */}
-            {n===2 && <PlanView2Leg L={ObjL} W={toM(objW,objWU)} hookH={toM(hookHVal,hookHU)} slingLen={toM(slingLenVal,slingLenU)} slingMode={slingMode} shackleH={toM(shackleH,shackleHU)} wllEff={wllEff} designLoad={designLoad} hitch={hitch}/>}
-            {n===3 && <PlanView3Leg pts={effPts} hookH={toM(hookHVal,hookHU)} slingLen={toM(slingLenVal,slingLenU)} slingMode={slingMode} wllEff={wllEff} designLoad={designLoad}/>}
-            {n>=4 && <PlanView4Leg pts={effPts} hookH={toM(hookHVal,hookHU)} slingLen={toM(slingLenVal,slingLenU)} slingMode={slingMode} wllEff={wllEff} designLoad={designLoad}/>}
-            {/* Side elevation */}
-            <SideElevationView dPlan={worstLeg?.dPlan||0} hookH={worstLeg?.H||0} slingLen={worstLeg?.S||0} tension={tension} theta={worstTheta} wllEff={wllEff}/>
-            {/* Isometric */}
-            <IsometricView pts={[...effPts.map(p=>({...p,objL:ObjL,objW:toM(objW,objWU)}))]} hookH={worstLeg?.H||0} tension={tension} wllEff={wllEff} designLoad={designLoad} legCount={n}/>
-          </div>
-          <div style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace",marginTop:6}}>
-            ━━━ Load-bearing leg ({loadBearingN} of {n})  &nbsp;  ╌╌╌ Balancing leg  &nbsp;  🟢 &lt;75% SAFE  🟡 75–90% WARN  🔴 &gt;90% CRITICAL
-          </div>
-
-          {/* ── STEP 8: STATUS ── */}
-          <div className="section-heading">Step 8 — Status Summary</div>
-          <div className="grid-3">
-            <div className="stat-card" style={{background:worstTheta>=45?"var(--green-bg)":worstTheta>=30?"var(--amber-bg)":worstTheta>0?"var(--red-bg)":""}}>
-              <div className="stat-label">Sling Angle Status</div>
-              <div style={{fontSize:12,color:angleColor,marginTop:8,lineHeight:1.5}}>{angleStatus}</div>
-              <div style={{fontFamily:"Arial,monospace",fontSize:13,color:angleColor,fontWeight:700,marginTop:4}}>{worstTheta>0?f2(worstTheta)+"°":"—"}</div>
-            </div>
-            <div className="stat-card" style={{background:util>90?"var(--red-bg)":util>75?"var(--amber-bg)":util>0?"var(--green-bg)":""}}>
-              <div className="stat-label">Utilization Status</div>
-              <div style={{fontSize:13,fontFamily:"Arial,monospace",color:util>90?"var(--red-400)":util>75?"var(--amber-400)":util>0?"var(--green-400)":"var(--text-muted)",fontWeight:700,marginTop:8}}>{util>100?"⛔ OVERLOAD":util>90?"🔴 CRITICAL":util>75?"🟡 WARNING":util>0?"🟢 SAFE":"—"}</div>
-            </div>
-            <div className="stat-card" style={{background:wllT>0?(wllEff>=tension?"var(--green-bg)":"var(--red-bg)"):""}}> 
-              <div className="stat-label">WLL Adequacy</div>
-              <div style={{fontSize:12,color:wllT>0?(wllEff>=tension?"var(--green-400)":"var(--red-400)"):"var(--text-muted)",marginTop:8,lineHeight:1.5}}>
-                {wllT>0?(wllEff>=tension?"✅ WLL ADEQUATE":"❌ WLL EXCEEDED — Upgrade slings"):"Enter WLL"}
-              </div>
-              {wllT>0&&tension>wllEff&&<div style={{fontFamily:"Arial,monospace",fontSize:10,color:"var(--red-400)",marginTop:4}}>Required ≥ {f3(tension)} T</div>}
-            </div>
-          </div>
-
-          {/* ── STEP 9: REFERENCE TABLE ── */}
-          <div className="section-heading">Step 9 — Sling Angle Reference — ASME B30.9</div>
-          <div className="table-wrap">
-            <table className="data-table">
-              <thead><tr><th>Angle (θh)</th><th>From Vertical</th><th>K Factor</th><th>Status</th></tr></thead>
-              <tbody>{SLING_ANGLE_REF.map(row=>(
-                <tr key={row.deg} className={worstTheta>0&&Math.abs(row.deg-worstTheta)<8?"highlight":""}>
-                  <td style={{fontFamily:"Arial,monospace",color:"var(--blue-400)"}}>{row.deg}°</td>
-                  <td style={{fontFamily:"Arial,monospace",color:"var(--text-muted)"}}>{row.fromVert}°</td>
-                  <td style={{fontFamily:"Arial,monospace"}}>{row.k.toFixed(3)}</td>
-                  <td style={{fontSize:12}}>{row.status}</td>
+        {/* ANGLE FACTOR REFERENCE */}
+        <div className="section-heading" style={{marginTop:16}}>Sling Angle Factor Reference</div>
+        <div className="table-wrap">
+          <table className="data-table">
+            <thead><tr><th>Angle (deg)</th><th>sin(theta)</th><th>Factor 1/sin</th><th>Increase over vertical</th><th>Status</th></tr></thead>
+            <tbody>
+              {[[90,1.000],[75,0.966],[60,0.866],[45,0.707],[30,0.500],[20,0.342]].map(([a,s])=>(
+                <tr key={a} className={worstAngle>0&&Math.abs(worstAngle-a)<5?"highlight":""}>
+                  <td style={{fontFamily:"Arial,monospace",fontWeight:700}}>{a} deg</td>
+                  <td style={{fontFamily:"Arial,monospace"}}>{f3(s)}</td>
+                  <td style={{fontFamily:"Arial,monospace",fontWeight:700,color:a>=45?"var(--green-400)":a===30?"var(--amber-400)":"var(--red-400)"}}>{f3(1/s)}</td>
+                  <td>+{f1((1/s-1)*100)}%</td>
+                  <td><span className={"badge badge-"+(a>=45?"pass":a>=30?"warn":"fail")}>{a>=45?"PERMITTED":a>=30?"LIMIT":"PROHIBITED"}</span></td>
                 </tr>
-              ))}</tbody>
-            </table>
-          </div>
-          <div style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace",marginTop:4}}>Reference: ASME B30.9 Table N-1</div>
-
+              ))}
+            </tbody>
+          </table>
         </div>
+        <div style={{fontSize:10,color:"var(--text-muted)",fontFamily:"Arial,monospace",marginTop:4}}>ASME B30.9 Table N-1 | ISO 12480-1 Sec.7.3 | BS EN 1492-1 Annex B</div>
+
+                {/* ── PLAN VIEW DIAGRAM ── */}
+        {effPts.length>=2&&hookPos&&designLoad>0&&(
+          <div style={{marginTop:20}}>
+            <div className="section-heading">Plan View Diagram</div>
+            <div style={{background:"#f8fafc",borderRadius:8,border:"1px solid #e2e8f0",padding:"8px 8px 4px",overflow:"hidden"}}>
+              <RiggingDiagram
+                effPts={effPts} hookPos={hookPos} cogAbs={cogAbs}
+                hasCogOffset={hasCogOffset} cogOffset={cogOffset}
+                legTensions={legTensions} legGeom={legGeom}
+                n={n} loadMode={loadMode} ObjL={ObjL} ObjW={ObjW}
+                maxTension={maxTension}
+              />
+            </div>
+            <div style={{fontSize:10,color:"#9ca3af",fontFamily:"Arial,monospace",marginTop:4,textAlign:"center"}}>
+              Plan view — circles coloured by WLL utilisation — blue cross = hook — red cross = COG — labels show tension / sling length / adjustment
+            </div>
+          </div>
+        )}
+
       </div>
     </div>
+    </div>
   );
-};
+}; 
 
-// ── MODULE 5: WIND LOAD ────────────────────────────────────────────────────────
 const WindLoad = () => {
   const {g,updateG} = useContext(AppCtx);
   const [speed,setSpeed]=useState(""); const [speedUnit,setSpeedUnit]=useState("m/s");
@@ -3505,18 +3921,64 @@ const WindLoad = () => {
                     {areaShape==="CUSTOM"&&<div className="form-row"><label className="label-input">Area (m²) — direct entry</label><input className="input-user no-unit" type="number" value={area} onChange={e=>setArea(e.target.value)}/></div>}
                   </div>
                   <div className="svg-diagram" style={{width:100,height:80,padding:4,flexShrink:0}}>
-                    <svg width="100" height="80" viewBox="0 0 100 80">
-                      {areaShape==="RECTANGLE"&&<><rect x={15} y={15} width={70} height={50} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={78} textAnchor="middle" fill="var(--text-muted)" fontSize="8">W × H</text></>}
-                      {areaShape==="CIRCLE"&&<><circle cx={50} cy={40} r={28} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><line x1={50} y1={40} x2={78} y2={40} stroke="var(--text-muted)" strokeWidth="1" strokeDasharray="3,2"/><text x={65} y={36} fill="var(--text-muted)" fontSize="7">D/2</text></>}
-                      {areaShape==="HOLLOW_CIRCLE"&&<><circle cx={50} cy={40} r={28} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><circle cx={50} cy={40} r={14} fill="none" stroke="var(--text-muted)" strokeWidth="1" strokeDasharray="3,2"/><text x={50} y={78} textAnchor="middle" fill="var(--text-muted)" fontSize="7">OD/ID</text></>}
-                      {areaShape==="TRIANGLE"&&<><polygon points="50,8 8,72 92,72" fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={80} textAnchor="middle" fill="var(--text-muted)" fontSize="7">B×H÷2</text></>}
-                      {areaShape==="TRAPEZOID"&&<><polygon points="28,12 72,12 88,68 12,68" fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={78} textAnchor="middle" fill="var(--text-muted)" fontSize="7">(a+b)×H÷2</text></>}
-                      {areaShape==="ELLIPSE"&&<><ellipse cx={50} cy={40} rx={40} ry={22} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={75} textAnchor="middle" fill="var(--text-muted)" fontSize="7">π×a×b</text></>}
-                      {areaShape==="I_BEAM"&&<><rect x={18} y={8} width={64} height={11} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><rect x={18} y={61} width={64} height={11} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><rect x={44} y={19} width={12} height={42} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={79} textAnchor="middle" fill="var(--text-muted)" fontSize="6">2bf·tf+hw·tw</text></>}
-                      {areaShape==="T_SECTION"&&<><rect x={18} y={8} width={64} height={11} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><rect x={44} y={19} width={12} height={49} fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={79} textAnchor="middle" fill="var(--text-muted)" fontSize="7">bf·tf+hw·tw</text></>}
-                      {areaShape==="HEXAGON"&&<><polygon points="50,8 80,24 80,56 50,72 20,56 20,24" fill="none" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={80} textAnchor="middle" fill="var(--text-muted)" fontSize="7">0.866×AF²</text></>}
-                      {areaShape==="SECTOR"&&<><path d="M50,40 L78,40 A28,28 0 0,0 64,14 Z" fill="rgba(249,115,22,0.1)" stroke="var(--orange-500)" strokeWidth="1.5"/><text x={50} y={78} textAnchor="middle" fill="var(--text-muted)" fontSize="6">(θ÷360)×π×R²</text></>}
-                      {areaShape==="CUSTOM"&&<><rect x={10} y={10} width={80} height={60} rx="4" fill="rgba(249,115,22,0.05)" stroke="var(--text-muted)" strokeDasharray="5,3" strokeWidth="1.5"/><text x={50} y={44} textAnchor="middle" fill="var(--text-muted)" fontSize="9">CUSTOM</text></>}
+                    <svg width="160" height="130" viewBox="0 0 160 130" style={{display:"block",fontFamily:"Arial,sans-serif"}}>
+                      {/* Load shape */}
+                      {areaShape==="RECTANGLE"&&(
+                        <g>
+                          <rect x="50" y="30" width="70" height="55" rx="3"
+                            fill="rgba(37,99,235,0.08)" stroke="#2563eb" strokeWidth="1.5"/>
+                          <text x="85" y="60" textAnchor="middle" fontSize="9" fill="#1e40af" fontWeight="700">LOAD</text>
+                          <text x="85" y="72" textAnchor="middle" fontSize="8" fill="#6b7280">
+                            {(areaW||"W")+" m"}
+                          </text>
+                          {/* Wind arrows */}
+                          <line x1="14" y1="42" x2="46" y2="42" stroke="#A32D2D" strokeWidth="2" markerEnd="url(#wlA)"/>
+                          <line x1="10" y1="57" x2="46" y2="57" stroke="#A32D2D" strokeWidth="2.5" markerEnd="url(#wlA)"/>
+                          <line x1="14" y1="72" x2="46" y2="72" stroke="#A32D2D" strokeWidth="2" markerEnd="url(#wlA)"/>
+                          <text x="6" y="110" fontSize="8" fill="#A32D2D" fontWeight="600">Wind →</text>
+                          {/* Dimension */}
+                          <line x1="126" y1="30" x2="126" y2="85" stroke="#9ca3af" strokeWidth="0.8"/>
+                          <text x="138" y="60" textAnchor="middle" fontSize="8" fill="#6b7280" transform="rotate(90,138,60)">
+                            {(areaH||"H")+" m"}
+                          </text>
+                          {/* Resultant arrow */}
+                          <line x1="85" y1="100" x2="85" y2="118" stroke="#EA6C00" strokeWidth="2" markerEnd="url(#wlA)"/>
+                          <text x="85" y="128" textAnchor="middle" fontSize="8" fill="#EA6C00" fontWeight="600">
+                            {fWind>0?"F="+f2(fWind)+"kN":"F = Cd×A×q"}
+                          </text>
+                        </g>
+                      )}
+                      {areaShape==="CYLINDER"&&(
+                        <g>
+                          <ellipse cx="85" cy="35" rx="28" ry="8" fill="rgba(37,99,235,0.1)" stroke="#2563eb" strokeWidth="1.5"/>
+                          <rect x="57" y="35" width="56" height="50" fill="rgba(37,99,235,0.08)" stroke="#2563eb" strokeWidth="1.5"/>
+                          <ellipse cx="85" cy="85" rx="28" ry="8" fill="rgba(37,99,235,0.1)" stroke="#2563eb" strokeWidth="1.5"/>
+                          <text x="85" y="63" textAnchor="middle" fontSize="9" fill="#1e40af" fontWeight="700">CYLINDER</text>
+                          <line x1="12" y1="55" x2="53" y2="55" stroke="#A32D2D" strokeWidth="2.5" markerEnd="url(#wlA)"/>
+                          <text x="6" y="110" fontSize="8" fill="#A32D2D" fontWeight="600">Wind →</text>
+                          <text x="85" y="124" textAnchor="middle" fontSize="8" fill="#EA6C00" fontWeight="600">
+                            {fWind>0?"F="+f2(fWind)+"kN":"Cd=0.7 (cylinder)"}
+                          </text>
+                        </g>
+                      )}
+                      {areaShape==="OPEN"&&(
+                        <g>
+                          <rect x="55" y="25" width="60" height="60" rx="3"
+                            fill="none" stroke="#2563eb" strokeWidth="1.5" strokeDasharray="5,3"/>
+                          <text x="85" y="58" textAnchor="middle" fontSize="8" fill="#1e40af">OPEN</text>
+                          <text x="85" y="70" textAnchor="middle" fontSize="8" fill="#1e40af">LATTICE</text>
+                          <line x1="12" y1="55" x2="51" y2="55" stroke="#A32D2D" strokeWidth="2.5" markerEnd="url(#wlA)"/>
+                          <text x="6" y="110" fontSize="8" fill="#A32D2D" fontWeight="600">Wind →</text>
+                          <text x="85" y="124" textAnchor="middle" fontSize="8" fill="#EA6C00" fontWeight="600">
+                            {fWind>0?"F="+f2(fWind)+"kN":"Cd=1.3 (lattice)"}
+                          </text>
+                        </g>
+                      )}
+                      <defs>
+                        <marker id="wlA" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+                          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+                        </marker>
+                      </defs>
                     </svg>
                   </div>
                 </div>
@@ -3651,17 +4113,128 @@ const COGDiagram = ({comps,cogX,cogY}) => {
   const scy = v => (v-minY)/(maxY-minY+pad||1)*120+20;
   return (
     <div className="svg-diagram" style={{padding:8}}>
-      <svg width="100%" viewBox="0 0 340 160">
-        <rect x={scx(minX-0.1)} y={scy(minY-0.1)} width={scx(maxX+0.1)-scx(minX-0.1)} height={scy(maxY+0.1)-scy(minY-0.1)} rx="4" fill="rgba(249,115,22,0.04)" stroke="var(--border-orange)" strokeDasharray="4,3" />
-        {valid.map((c,i)=>{
-          const wx=scx(toM(c.x,c.xu||"m")),wy=scy(toM(c.y,c.yu||"m"));
-          return <g key={i}><circle cx={wx} cy={wy} r="5" fill="var(--blue-bg)" stroke="var(--blue-400)" strokeWidth="1.5"/><text x={wx} y={wy-8} textAnchor="middle" fill="var(--text-secondary)" fontSize="9">{c.name}</text></g>;
-        })}
-        <circle cx={scx(cogX)} cy={scy(cogY)} r="8" fill="rgba(249,115,22,0.2)" stroke="var(--orange-500)" strokeWidth="2"/>
-        <line x1={scx(cogX)-12} y1={scy(cogY)} x2={scx(cogX)+12} y2={scy(cogY)} stroke="var(--orange-500)" strokeWidth="1.5"/>
-        <line x1={scx(cogX)} y1={scy(cogY)-12} x2={scx(cogX)} y2={scy(cogY)+12} stroke="var(--orange-500)" strokeWidth="1.5"/>
-        <text x={scx(cogX)+10} y={scy(cogY)-8} fill="var(--orange-500)" fontSize="9" fontWeight="600">COG</text>
-      </svg>
+      <svg width="100%" viewBox="0 0 500 240" style={{display:"block",fontFamily:"Arial,sans-serif"}}>
+          <defs>
+            <marker id="cogArr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="5" markerHeight="5" orient="auto-start-reverse">
+              <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+            </marker>
+          </defs>
+
+          {/* Title */}
+          <text x="250" y="18" textAnchor="middle" fontSize="11" fontWeight="700" fill="#374151">
+            CENTRE OF GRAVITY DIAGRAM
+          </text>
+
+          {/* Load boundary */}
+          <rect x={scx(minX-0.1)} y={scy(minY-0.1)}
+            width={scx(maxX+0.1)-scx(minX-0.1)} height={scy(maxY+0.1)-scy(minY-0.1)}
+            rx="6" fill="rgba(249,115,22,0.05)" stroke="#fed7aa" strokeWidth="1.5" strokeDasharray="6,3"/>
+
+          {/* Grid */}
+          {[0.33,0.66].map(t=>(
+            <g key={t} stroke="#f0f0f0" strokeWidth="0.5">
+              <line x1={scx(minX-0.1+(maxX-minX+0.2)*t)} y1={scy(minY-0.1)}
+                    x2={scx(minX-0.1+(maxX-minX+0.2)*t)} y2={scy(maxY+0.1)}/>
+              <line x1={scx(minX-0.1)} y1={scy(minY-0.1+(maxY-minY+0.2)*t)}
+                    x2={scx(maxX+0.1)} y2={scy(minY-0.1+(maxY-minY+0.2)*t)}/>
+            </g>
+          ))}
+
+          {/* Moment arm lines from each component to COG */}
+          {valid.map((c,i)=>{
+            const cx2=scx(toM(c.x,c.xu||"m")), cy2=scy(toM(c.y,c.yu||"m"));
+            return <line key={i} x1={cx2} y1={cy2} x2={scx(cogX)} y2={scy(cogY)}
+              stroke="#fed7aa" strokeWidth="1" strokeDasharray="5,3" opacity="0.8"/>;
+          })}
+
+          {/* Component circles — radius proportional to mass */}
+          {valid.map((c,i)=>{
+            const cx2=scx(toM(c.x,c.xu||"m")), cy2=scy(toM(c.y,c.yu||"m"));
+            const wi=parseFloat(c.w)||0;
+            const totalW=valid.reduce((s,v)=>s+(parseFloat(v.w)||0),0)||1;
+            const r=Math.max(8,Math.min(22,10*(wi/totalW)*valid.length));
+            const above=cy2<scy(cogY);
+            const labelY=above?cy2-r-8:cy2+r+8;
+            return (
+              <g key={i}>
+                <circle cx={cx2} cy={cy2} r={r}
+                  fill="rgba(37,99,235,0.12)" stroke="#2563eb" strokeWidth="1.5"/>
+                <circle cx={cx2} cy={cy2} r="4" fill="#2563eb"/>
+                <text x={cx2} y={cy2+5} textAnchor="middle"
+                  fontSize="11" fontWeight="700" fill="#1e40af">
+                  {(c.name||("C"+(i+1))).substring(0,6)}
+                </text>
+                <rect x={cx2-28} y={labelY-2} width="56" height="22" rx="3"
+                  fill="white" stroke="#bfdbfe" strokeWidth="0.5" opacity="0.9"/>
+                <text x={cx2} y={labelY+8}
+                  textAnchor="middle" fontSize="9" fontWeight="700" fill="#1e40af">
+                  {(parseFloat(c.w)||0).toFixed(2)+" "+(c.wu||"T")}
+                </text>
+                <text x={cx2} y={labelY+18}
+                  textAnchor="middle" fontSize="8" fill="#9ca3af" fontFamily="Arial,monospace">
+                  {"("+f2(toM(c.x,c.xu||"m"))+", "+f2(toM(c.y,c.yu||"m"))+")"}
+                </text>
+              </g>
+            );
+          })}
+
+          {/* COG marker */}
+          {(()=>{
+            const cx2=scx(cogX), cy2=scy(cogY);
+            const lx=cx2+18, ly=cy2-10;
+            return (
+              <g>
+                <circle cx={cx2} cy={cy2} r="18"
+                  fill="rgba(192,0,0,0.07)" stroke="#c00000" strokeWidth="1" strokeDasharray="3,2"/>
+                <line x1={cx2-15} y1={cy2} x2={cx2+15} y2={cy2} stroke="#c00000" strokeWidth="2.5"/>
+                <line x1={cx2} y1={cy2-15} x2={cx2} y2={cy2+15} stroke="#c00000" strokeWidth="2.5"/>
+                <circle cx={cx2} cy={cy2} r="5" fill="#c00000"/>
+                <rect x={lx} y={ly} width="90" height="38" rx="4"
+                  fill="white" stroke="#c00000" strokeWidth="1.2" opacity="0.97"/>
+                <text x={lx+6} y={ly+12} fontSize="10" fontWeight="700" fill="#c00000">COG</text>
+                <text x={lx+6} y={ly+23} fontSize="8" fill="#374151" fontFamily="Arial,monospace">
+                  {"X = "+f2(cogX)+" m"}
+                </text>
+                <text x={lx+6} y={ly+34} fontSize="8" fill="#374151" fontFamily="Arial,monospace">
+                  {"Y = "+f2(cogY)+" m"}
+                </text>
+              </g>
+            );
+          })()}
+
+          {/* Axis labels */}
+          <text x={scx(minX-0.1)} y={scy(maxY+0.1)+14}
+            fontSize="9" fill="#9ca3af">X →</text>
+          <text x={scx(minX-0.1)-14} y={scy(minY-0.1)}
+            fontSize="9" fill="#9ca3af">Y ↓</text>
+
+          {/* Scale bar */}
+          {(maxX-minX)>0&&(()=>{
+            const rngX=maxX-minX+0.2;
+            const barM=parseFloat((rngX/4).toPrecision(1))||0.5;
+            const barPx=barM/rngX*(scx(maxX+0.1)-scx(minX-0.1));
+            const bx=scx(minX-0.1);
+            return (
+              <g>
+                <line x1={bx} y1="228" x2={bx+barPx} y2="228" stroke="#6b7280" strokeWidth="1.5"/>
+                <line x1={bx} y1="224" x2={bx} y2="232" stroke="#6b7280" strokeWidth="1.5"/>
+                <line x1={bx+barPx} y1="224" x2={bx+barPx} y2="232" stroke="#6b7280" strokeWidth="1.5"/>
+                <text x={bx+barPx/2} y="238" textAnchor="middle"
+                  fontSize="8" fill="#6b7280">{barM+" m"}</text>
+              </g>
+            );
+          })()}
+
+          {/* Legend */}
+          <rect x="360" y="190" width="130" height="44" rx="4"
+            fill="white" stroke="#e5e7eb" strokeWidth="0.5" opacity="0.95"/>
+          <circle cx="372" cy="204" r="7" fill="rgba(37,99,235,0.15)" stroke="#2563eb" strokeWidth="1.5"/>
+          <circle cx="372" cy="204" r="3" fill="#2563eb"/>
+          <text x="384" y="208" fontSize="8" fill="#374151">Component (size = mass)</text>
+          <line x1="366" y1="222" x2="378" y2="222" stroke="#c00000" strokeWidth="2.5"/>
+          <circle cx="372" cy="222" r="4" fill="#c00000"/>
+          <text x="384" y="226" fontSize="8" fill="#374151">Centre of gravity</text>
+        </svg>
     </div>
   );
 };
@@ -4211,6 +4784,96 @@ const LiftSequence = () => {
 };
 
 // ── MODULE 15: EXCLUSION ZONE ─────────────────────────────────────────────────
+const EZDiagram = ({slew, minExcR, f2}) => {
+  const cx=200, cy=178;
+  const slewR = parseFloat(slew)||0;
+  const excR  = minExcR||0;
+  const maxR  = Math.max(slewR,excR,5);
+  const sc    = Math.min(120/maxR, 4.5);
+  const sR    = slewR*sc, eR=excR*sc;
+  return (
+    <svg width="100%" viewBox="0 0 480 340" style={{display:"block",fontFamily:"Arial,sans-serif"}}>
+      <defs>
+        <marker id="ezArr" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="6" markerHeight="6" orient="auto-start-reverse">
+          <path d="M2 1L8 5L2 9" fill="none" stroke="context-stroke" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/>
+        </marker>
+      </defs>
+      {/* Slew radius */}
+      {sR>0&&<circle cx={cx} cy={cy} r={sR} fill="rgba(186,117,23,0.07)" stroke="#BA7517" strokeWidth="1.5" strokeDasharray="8,4"/>}
+      {/* Exclusion zone */}
+      {eR>0&&<circle cx={cx} cy={cy} r={eR} fill="rgba(163,45,45,0.09)" stroke="#A32D2D" strokeWidth="2" strokeDasharray="6,3"/>}
+      {/* Compass */}
+      {['N','S','E','W'].map((d,i)=>{
+        const a=(i*90-90)*Math.PI/180;
+        const rOut=Math.max(sR,eR,40)+22;
+        return (
+          <g key={d}>
+            <line x1={cx} y1={cy} x2={cx+Math.cos(a)*rOut} y2={cy+Math.sin(a)*rOut} stroke="#e5e7eb" strokeWidth="0.8"/>
+            <text x={cx+Math.cos(a)*(rOut+12)} y={cy+Math.sin(a)*(rOut+12)}
+              textAnchor="middle" dominantBaseline="middle" fontSize="10" fill="#9ca3af" fontWeight="600">{d}</text>
+          </g>
+        );
+      })}
+      {/* Crane body */}
+      <rect x={cx-16} y={cy+2} width="32" height="8" rx="4" fill="#1e2329"/>
+      <rect x={cx-11} y={cy-10} width="22" height="13" rx="2" fill="#1e2329"/>
+      <rect x={cx-11} y={cy-20} width="12" height="10" rx="1.5" fill="#1e2329"/>
+      <rect x={cx-10} y={cy-19} width="7" height="6" rx="1" fill="#1e3a8a" opacity="0.7"/>
+      <line x1={cx+4} y1={cy-6} x2={cx+32} y2={cy-52} stroke="#1e2329" strokeWidth="3" strokeLinecap="round"/>
+      <line x1={cx+32} y1={cy-52} x2={cx+33} y2={cy-38} stroke="#6b7280" strokeWidth="1.2"/>
+      <rect x={cx+29} y={cy-38} width="8" height="5" rx="1" fill="#A32D2D"/>
+      <circle cx={cx+32} cy={cy-52} r="3" fill="none" stroke="#374151" strokeWidth="1.5"/>
+      {/* Warning symbols */}
+      {eR>0&&[0,90,180,270].map((ang,i)=>{
+        const rad=ang*Math.PI/180;
+        return <text key={i} x={cx+Math.cos(rad)*eR-6} y={cy+Math.sin(rad)*eR+4} fontSize="12" fill="#A32D2D">⚠</text>;
+      })}
+      {/* Radius arrows */}
+      {eR>0&&(
+        <g>
+          <line x1={cx} y1={cy} x2={cx} y2={cy-eR} stroke="#A32D2D" strokeWidth="1" strokeDasharray="3,2" opacity="0.8" markerEnd="url(#ezArr)"/>
+          <rect x={cx+4} y={cy-eR/2-8} width="52" height="14" rx="3" fill="white" opacity="0.9"/>
+          <text x={cx+6} y={cy-eR/2+2} fontSize="9" fill="#A32D2D" fontWeight="700">{f2(excR)+" m EZ"}</text>
+        </g>
+      )}
+      {sR>eR&&(
+        <g>
+          <line x1={cx} y1={cy} x2={cx-sR} y2={cy} stroke="#BA7517" strokeWidth="1" strokeDasharray="3,2" opacity="0.7" markerEnd="url(#ezArr)"/>
+          <rect x={cx-sR/2-30} y={cy-16} width="60" height="14" rx="3" fill="white" opacity="0.9"/>
+          <text x={cx-sR/2} y={cy-6} textAnchor="middle" fontSize="9" fill="#BA7517" fontWeight="600">{f2(slewR)+" m slew"}</text>
+        </g>
+      )}
+      {/* Personnel */}
+      {[35,125,215,305].map((ang,i)=>{
+        const rad=ang*Math.PI/180;
+        const r=Math.max(sR,eR)+32;
+        const px=cx+Math.cos(rad)*r, py=cy+Math.sin(rad)*r;
+        return (
+          <g key={i} fill="#3B6D11" stroke="#3B6D11" strokeWidth="1.2" opacity="0.8">
+            <circle cx={px} cy={py-6} r="4"/>
+            <line x1={px} y1={py-2} x2={px} y2={py+7}/>
+            <line x1={px-4} y1={py+2} x2={px+4} y2={py+2}/>
+          </g>
+        );
+      })}
+      {/* Title */}
+      <text x="200" y="16" textAnchor="middle" fontSize="11" fontWeight="700" fill="#374151">EXCLUSION ZONE — PLAN VIEW</text>
+      {/* Legend */}
+      <rect x="336" y="248" width="132" height="82" rx="5" fill="white" stroke="#e5e7eb" strokeWidth="0.5" opacity="0.97"/>
+      <text x="344" y="264" fontSize="9" fontWeight="700" fill="#374151">Legend</text>
+      <line x1="344" y1="278" x2="358" y2="278" stroke="#A32D2D" strokeWidth="2" strokeDasharray="5,2"/>
+      <text x="364" y="282" fontSize="8" fill="#374151">Exclusion zone</text>
+      <line x1="344" y1="293" x2="358" y2="293" stroke="#BA7517" strokeWidth="1.5" strokeDasharray="6,3"/>
+      <text x="364" y="297" fontSize="8" fill="#374151">Slew radius</text>
+      <text x="344" y="312" fontSize="10" fill="#A32D2D">⚠</text>
+      <text x="360" y="314" fontSize="8" fill="#374151">Boundary warning</text>
+      <circle cx="350" cy="325" r="3" fill="#3B6D11" opacity="0.8"/>
+      <text x="360" y="329" fontSize="8" fill="#374151">Personnel (safe)</text>
+    </svg>
+  );
+};
+
+
 const ExclusionZone = () => {
   const [slew,setSlew]=useState(""); const [maxR,setMaxR]=useState(""); const [liftH,setLiftH]=useState("");
   const [loadW,setLoadW]=useState(""); const [buf,setBuf]=useState(1.5);
@@ -4234,14 +4897,7 @@ const ExclusionZone = () => {
         </div>
         {maxR && (
           <div className="svg-diagram" style={{padding:8,marginTop:12}}>
-            <svg width="100%" viewBox="0 0 340 200">
-              <circle cx={170} cy={100} r={Math.min(parseFloat(slew)||20,80)*1.5} fill="rgba(249,115,22,0.05)" stroke="var(--border-orange)" strokeDasharray="4,3"/>
-              <circle cx={170} cy={100} r={Math.min(minExcR,90)*1.5} fill="rgba(239,68,68,0.05)" stroke="var(--red-400)" strokeDasharray="6,3"/>
-              <rect x={160} y={94} width={20} height={12} rx="2" fill="var(--orange-500)" opacity="0.6"/>
-              <text x={170} y={105} textAnchor="middle" fill="white" fontSize="8">🏗</text>
-              <text x={170} y={40} textAnchor="middle" fill="var(--red-400)" fontSize="9">EXCLUSION ZONE: {f2(minExcR)}m</text>
-              <text x={280} y={100} fill="var(--border-orange)" fontSize="8">SLEW: {slew||"?"}m</text>
-            </svg>
+            <EZDiagram slew={slew} minExcR={minExcR} f2={f2}/>
           </div>
         )}
       </div>
